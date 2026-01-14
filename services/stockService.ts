@@ -82,11 +82,40 @@ export const fetchRealTimeStockData = async (retries = 3): Promise<Stock[]> => {
 
       // Update history if market is open or if it's the first time fetching
       if (marketOpen || history.length === 0) {
-        const timeStr = new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
-        // Only push if price changed or every few minutes to keep chart clean
-        if (history.length === 0 || history[history.length - 1].price !== currentPrice) {
-          history.push({ time: timeStr, price: currentPrice });
-          if (history.length > 50) history.shift();
+        const now = new Date();
+        // 保存完整的时间信息：日期和时间
+        const dateStr = now.toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+        const timeStr = now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+        const fullTimeStr = `${dateStr} ${timeStr}`;
+        
+        // 检查是否需要添加新数据点
+        // 如果价格变化超过0.05%或者距离上次更新超过2分钟，则添加新点
+        const priceChanged = history.length === 0 || 
+          Math.abs((currentPrice - history[history.length - 1].price) / history[history.length - 1].price) > 0.0005;
+        
+        // 检查时间间隔（检查完整时间字符串）
+        const timeChanged = history.length === 0 || history[history.length - 1].time !== fullTimeStr;
+        
+        if (priceChanged || (timeChanged && history.length < 2000)) {
+          // 如果价格变化或时间变化且数据点未满，添加新点
+          history.push({ time: fullTimeStr, price: currentPrice });
+          // 保留最多2000个数据点（约6个月的交易日数据，每天约4-5个点）
+          if (history.length > 2000) history.shift();
+        } else if (history.length > 0) {
+          // 如果价格和时间都没变，更新最后一个点的价格为当前价格（确保数据最新）
+          history[history.length - 1] = { time: fullTimeStr, price: currentPrice };
+        }
+      } else if (history.length > 0) {
+        // 市场关闭时，更新最后一个点的价格为当前价格（可能是收盘价）
+        const lastPoint = history[history.length - 1];
+        if (lastPoint.price !== currentPrice) {
+          const now = new Date();
+          const dateStr = now.toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+          const timeStr = now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+          history[history.length - 1] = { 
+            time: `${dateStr} ${timeStr}`, 
+            price: currentPrice 
+          };
         }
       }
 

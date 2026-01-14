@@ -245,6 +245,12 @@ export const userDataService = {
 
       if (error) {
         console.error('保存用戶數據失敗:', error);
+        console.error('錯誤詳情:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
         // 降級到本地存儲
         localStorage.setItem(`tw50_user_${userData.username}`, JSON.stringify(userData));
         return false;

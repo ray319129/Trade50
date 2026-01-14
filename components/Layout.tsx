@@ -1,14 +1,28 @@
 
 import React from 'react';
+import { UserState, Stock } from '../types';
 
 interface LayoutProps {
   children: React.ReactNode;
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  balance: number;
+  user: UserState;
+  stocks: Stock[];
 }
 
-const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, balance }) => {
+const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user, stocks }) => {
+  // 计算总资产（余额 + 持仓价值）
+  const calculateTotalAssets = (): number => {
+    let holdingsValue = 0;
+    user.holdings.forEach(holding => {
+      const stock = stocks.find(s => s.symbol === holding.symbol);
+      const currentPrice = stock?.price || holding.currentPrice;
+      holdingsValue += currentPrice * holding.shares;
+    });
+    return user.balance + holdingsValue;
+  };
+
+  const totalAssets = calculateTotalAssets();
   const navItems = [
     { id: 'market', label: '行情', icon: '📈' },
     { id: 'trade', label: '下單', icon: '💸' },
@@ -44,7 +58,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, bala
 
         <div className="p-4 bg-slate-800 rounded-2xl border border-slate-700">
           <p className="text-xs text-slate-400 mb-1">總資產 (T+2)</p>
-          <p className="text-lg font-bold text-white">${balance.toLocaleString()}</p>
+          <p className="text-lg font-bold text-white">${totalAssets.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
         </div>
       </aside>
 
@@ -55,8 +69,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, bala
           <span className="font-bold">TW50 模擬</span>
         </div>
         <div className="text-right">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">資產餘額</p>
-          <p className="font-bold text-slate-900">${balance.toLocaleString()}</p>
+          <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">總資產</p>
+          <p className="font-bold text-slate-900">${totalAssets.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
         </div>
       </header>
 

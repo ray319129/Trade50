@@ -412,7 +412,7 @@ const App: React.FC = () => {
   const chartData = selectedStock ? selectedStock.history : [];
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={setActiveTab} balance={user.balance}>
+    <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={user} stocks={stocks}>
       <div className="flex justify-between items-center mb-6">
         <div className="bg-slate-200 px-4 py-1.5 rounded-full text-slate-600 text-[10px] font-black uppercase flex items-center gap-3">
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> {user.username}</span>

@@ -190,9 +190,9 @@ const MarketChart: React.FC<MarketChartProps> = ({
             ))}
           </div>
         )}
-        <div className="h-48 sm:h-64 w-full">
+        <div className="h-48 sm:h-64 w-full" style={{ minWidth: 0 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={filteredData}>
+            <AreaChart data={filteredData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               <defs>
                 <linearGradient id="colorPriceDetail" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={color} stopOpacity={0.2}/>
@@ -232,9 +232,9 @@ const MarketChart: React.FC<MarketChartProps> = ({
   }
 
   return (
-    <div className="h-10 w-20 sm:w-24">
+    <div className="h-10 w-20 sm:w-24" style={{ minWidth: 0 }}>
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data}>
+        <AreaChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
           <YAxis hide domain={['dataMin - 0.5', 'dataMax + 0.5']} />
           <Area 
             type="monotone" 

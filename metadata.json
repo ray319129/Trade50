@@ -1,0 +1,5 @@
+{
+  "name": "Taiwan 50 Trading Simulator",
+  "description": "A professional-grade mock trading platform for Taiwan 50 Index stocks, featuring T+2 settlement logic and real-time-like market simulations.",
+  "requestFramePermissions": []
+}

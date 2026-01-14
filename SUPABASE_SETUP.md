@@ -48,7 +48,8 @@ Supabase 是一個開源的 Firebase 替代方案，提供：
 ```sql
 -- 建立用戶數據表
 CREATE TABLE IF NOT EXISTS user_data (
-  username TEXT PRIMARY KEY,
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  username TEXT NOT NULL,
   data JSONB NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -59,22 +60,60 @@ ALTER TABLE user_data ENABLE ROW LEVEL SECURITY;
 -- 建立政策：用戶只能讀取和更新自己的數據
 CREATE POLICY "Users can read own data" ON user_data
   FOR SELECT
-  USING (auth.uid()::text = username);
+  USING (auth.uid() = user_id);
 
 CREATE POLICY "Users can insert own data" ON user_data
   FOR INSERT
-  WITH CHECK (auth.uid()::text = username);
+  WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can update own data" ON user_data
   FOR UPDATE
-  USING (auth.uid()::text = username);
+  USING (auth.uid() = user_id);
 
 -- 建立索引以提升查詢效能
+CREATE INDEX IF NOT EXISTS idx_user_data_user_id ON user_data(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_data_username ON user_data(username);
 CREATE INDEX IF NOT EXISTS idx_user_data_updated_at ON user_data(updated_at);
 ```
 
 3. **點擊 "Run" 執行 SQL**
+
+> ⚠️ **如果您已經建立過 `user_data` 表，請先執行以下遷移 SQL 來更新表結構：**
+>
+> ```sql
+> -- 遷移現有表結構（如果表已存在）
+> -- 1. 添加 user_id 欄位
+> ALTER TABLE user_data ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
+> 
+> -- 2. 刪除舊的主鍵約束
+> ALTER TABLE user_data DROP CONSTRAINT IF EXISTS user_data_pkey;
+> 
+> -- 3. 設置 user_id 為主鍵
+> ALTER TABLE user_data ADD PRIMARY KEY (user_id);
+> 
+> -- 4. 刪除舊的 RLS 政策
+> DROP POLICY IF EXISTS "Users can read own data" ON user_data;
+> DROP POLICY IF EXISTS "Users can insert own data" ON user_data;
+> DROP POLICY IF EXISTS "Users can update own data" ON user_data;
+> 
+> -- 5. 建立新的 RLS 政策
+> CREATE POLICY "Users can read own data" ON user_data
+>   FOR SELECT
+>   USING (auth.uid() = user_id);
+> 
+> CREATE POLICY "Users can insert own data" ON user_data
+>   FOR INSERT
+>   WITH CHECK (auth.uid() = user_id);
+> 
+> CREATE POLICY "Users can update own data" ON user_data
+>   FOR UPDATE
+>   USING (auth.uid() = user_id);
+> 
+> -- 6. 建立索引
+> CREATE INDEX IF NOT EXISTS idx_user_data_user_id ON user_data(user_id);
+> CREATE INDEX IF NOT EXISTS idx_user_data_username ON user_data(username);
+> CREATE INDEX IF NOT EXISTS idx_user_data_updated_at ON user_data(updated_at);
+> ```
 
 ### 步驟 4：設定環境變數
 
@@ -187,6 +226,18 @@ VITE_SUPABASE_ANON_KEY=你的anon_public_key
 - 確認變數名稱正確（`VITE_SUPABASE_URL` 和 `VITE_SUPABASE_ANON_KEY`）
 - 重新啟動開發伺服器
 - 清除瀏覽器快取
+
+### 問題 5：註冊成功但 user_data 表中沒有數據
+
+**原因：**
+- 舊的 RLS 政策使用 `auth.uid()::text = username`，但 `auth.uid()` 是 UUID，而 `username` 是字符串，導致無法匹配
+- 表結構需要更新以使用 `user_id` 欄位
+
+**解決方案：**
+1. 在 Supabase SQL Editor 中執行步驟 3 中的遷移 SQL（見上方）
+2. 重新登入應用程式
+3. 進行一些交易操作，數據會自動保存到 `user_data` 表
+4. 在 Supabase Table Editor 中檢查 `user_data` 表，應該能看到數據
 
 ## 📊 Supabase 免費額度
 

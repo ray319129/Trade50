@@ -180,10 +180,17 @@ export const userDataService = {
     }
 
     try {
+      // 獲取當前用戶的 UUID
+      const { data: { user } } = await client.auth.getUser();
+      if (!user) {
+        const saved = localStorage.getItem(`tw50_user_${username}`);
+        return saved ? JSON.parse(saved) : null;
+      }
+
       const { data, error } = await client
         .from('user_data')
         .select('*')
-        .eq('username', username)
+        .eq('user_id', user.id)
         .single();
 
       if (error) {
@@ -217,14 +224,23 @@ export const userDataService = {
     }
 
     try {
+      // 獲取當前用戶的 UUID
+      const { data: { user } } = await client.auth.getUser();
+      if (!user) {
+        console.error('無法獲取用戶資訊');
+        localStorage.setItem(`tw50_user_${userData.username}`, JSON.stringify(userData));
+        return false;
+      }
+
       const { error } = await client
         .from('user_data')
         .upsert({
+          user_id: user.id,
           username: userData.username,
           data: userData,
           updated_at: new Date().toISOString()
         }, {
-          onConflict: 'username'
+          onConflict: 'user_id'
         });
 
       if (error) {
@@ -253,10 +269,16 @@ export const userDataService = {
     }
 
     try {
+      // 獲取當前用戶的 UUID
+      const { data: { user } } = await client.auth.getUser();
+      if (!user) {
+        return null;
+      }
+
       const { data, error } = await client
         .from('user_data')
         .select('*')
-        .eq('username', username)
+        .eq('user_id', user.id)
         .single();
 
       if (error || !data) {

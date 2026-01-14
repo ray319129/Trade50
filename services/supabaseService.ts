@@ -29,23 +29,33 @@ export const isCloudSyncEnabled = (): boolean => {
 // 用戶認證相關
 export const authService = {
   // 註冊用戶
-  async register(username: string, password: string): Promise<{ success: boolean; error?: string }> {
+  async register(email: string, password: string): Promise<{ success: boolean; error?: string }> {
     const client = getSupabaseClient();
+    
+    // 驗證電子郵件格式
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return { success: false, error: '請輸入有效的電子郵件地址（如：example@gmail.com 或 example@edu.tw）' };
+    }
+    
+    // 從電子郵件地址提取用戶名（@ 前面的部分）
+    const username = email.split('@')[0];
+    
     if (!client) {
       // 降級到本地存儲
       const authData = JSON.parse(localStorage.getItem('tw50_auth') || '{"users":{}}');
-      if (authData.users[username]) {
-        return { success: false, error: '帳號已存在' };
+      if (authData.users[email]) {
+        return { success: false, error: '此電子郵件地址已註冊' };
       }
-      authData.users[username] = password;
+      authData.users[email] = password;
       localStorage.setItem('tw50_auth', JSON.stringify(authData));
       return { success: true };
     }
 
     try {
-      // 使用 Supabase Auth（使用 email 格式，但實際是 username）
+      // 使用真實的電子郵件地址註冊
       const { data, error } = await client.auth.signUp({
-        email: `${username}@tw50.local`,
+        email: email,
         password: password,
         options: {
           data: {
@@ -55,9 +65,9 @@ export const authService = {
       });
 
       if (error) {
-        // 如果用戶已存在，嘗試登入
-        if (error.message.includes('already registered')) {
-          return { success: false, error: '帳號已存在' };
+        // 如果用戶已存在
+        if (error.message.includes('already registered') || error.message.includes('already exists')) {
+          return { success: false, error: '此電子郵件地址已註冊' };
         }
         return { success: false, error: error.message };
       }
@@ -69,25 +79,32 @@ export const authService = {
   },
 
   // 登入用戶
-  async login(username: string, password: string): Promise<{ success: boolean; error?: string }> {
+  async login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
     const client = getSupabaseClient();
+    
+    // 驗證電子郵件格式
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return { success: false, error: '請輸入有效的電子郵件地址' };
+    }
+    
     if (!client) {
       // 降級到本地存儲
       const authData = JSON.parse(localStorage.getItem('tw50_auth') || '{"users":{}}');
-      if (authData.users[username] !== password) {
-        return { success: false, error: '帳號或密碼錯誤' };
+      if (authData.users[email] !== password) {
+        return { success: false, error: '電子郵件地址或密碼錯誤' };
       }
       return { success: true };
     }
 
     try {
       const { data, error } = await client.auth.signInWithPassword({
-        email: `${username}@tw50.local`,
+        email: email,
         password: password
       });
 
       if (error) {
-        return { success: false, error: '帳號或密碼錯誤' };
+        return { success: false, error: '電子郵件地址或密碼錯誤' };
       }
 
       return { success: true };
@@ -103,6 +120,7 @@ export const authService = {
       await client.auth.signOut();
     }
     localStorage.removeItem('tw50_current_user');
+    localStorage.removeItem('tw50_current_user_email');
   },
 
   // 獲取當前用戶
@@ -114,12 +132,37 @@ export const authService = {
 
     try {
       const { data: { user } } = await client.auth.getUser();
-      if (user && user.user_metadata?.username) {
-        return user.user_metadata.username;
+      if (user) {
+        // 優先使用 user_metadata 中的 username，否則使用 email 的前綴
+        if (user.user_metadata?.username) {
+          return user.user_metadata.username;
+        }
+        // 如果沒有 username，從 email 提取
+        if (user.email) {
+          return user.email.split('@')[0];
+        }
       }
       return null;
     } catch {
       return localStorage.getItem('tw50_current_user');
+    }
+  },
+  
+  // 獲取當前用戶的電子郵件地址
+  async getCurrentUserEmail(): Promise<string | null> {
+    const client = getSupabaseClient();
+    if (!client) {
+      return localStorage.getItem('tw50_current_user_email');
+    }
+
+    try {
+      const { data: { user } } = await client.auth.getUser();
+      if (user && user.email) {
+        return user.email;
+      }
+      return localStorage.getItem('tw50_current_user_email');
+    } catch {
+      return localStorage.getItem('tw50_current_user_email');
     }
   }
 };

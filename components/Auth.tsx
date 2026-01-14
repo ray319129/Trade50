@@ -8,21 +8,21 @@ interface AuthProps {
 
 const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [isRegister, setIsRegister] = useState(false);
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!username || !password) return setError('請輸入帳號密碼');
+    if (!email || !password) return setError('請輸入電子郵件地址和密碼');
     
     setIsLoading(true);
     setError('');
 
     try {
       if (isRegister) {
-        const result = await authService.register(username, password);
+        const result = await authService.register(email, password);
         if (result.success) {
           alert('註冊成功！請登入');
           setIsRegister(false);
@@ -31,9 +31,12 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           setError(result.error || '註冊失敗');
         }
       } else {
-        const result = await authService.login(username, password);
+        const result = await authService.login(email, password);
         if (result.success) {
+          // 從電子郵件地址提取用戶名
+          const username = email.split('@')[0];
           localStorage.setItem('tw50_current_user', username);
+          localStorage.setItem('tw50_current_user_email', email);
           onLogin(username);
         } else {
           setError(result.error || '登入失敗');
@@ -61,10 +64,10 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         <form onSubmit={handleAuth} className="space-y-4">
           <div>
             <input 
-              type="text" 
-              placeholder="使用者名稱" 
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email" 
+              placeholder="電子郵件地址（如：example@gmail.com）" 
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-white focus:ring-2 ring-blue-500 outline-none transition-all placeholder:text-slate-500"
             />
           </div>

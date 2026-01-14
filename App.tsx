@@ -177,6 +177,7 @@ const App: React.FC = () => {
     setCurrentUser(null);
     setUser(null);
     localStorage.removeItem('tw50_current_user');
+    localStorage.removeItem('tw50_current_user_email');
   };
 
   const handleTrade = (type: TransactionType) => {

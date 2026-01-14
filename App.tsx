@@ -11,6 +11,7 @@ import { UserState, Stock, Transaction, TransactionType, TradingMode } from './t
 import { fetchRealTimeStockData, isMarketOpen } from './services/stockService';
 import { calculateFees, getSettlementDate, processSettlements } from './services/tradingService';
 import { userDataService, authService, isCloudSyncEnabled } from './services/supabaseService';
+import { recalculateBalance, recalculateHoldings, validateAndFixUserData } from './services/balanceCalculator';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('tw50_current_user'));
@@ -56,7 +57,9 @@ const App: React.FC = () => {
             // 保存到雲端和本地
             await userDataService.saveUserData(userData);
           } else {
-            // 如果雲端有數據，同步到本地
+            // 如果雲端有數據，驗證並修復數據一致性（基於交易記錄重新計算）
+            userData = validateAndFixUserData(userData);
+            // 同步到本地
             localStorage.setItem(`tw50_user_${currentUser}`, JSON.stringify(userData));
           }
           
@@ -66,7 +69,10 @@ const App: React.FC = () => {
           // 降級到本地存儲
           const saved = localStorage.getItem(`tw50_user_${currentUser}`);
           if (saved) {
-            setUser(JSON.parse(saved));
+            let localUserData = JSON.parse(saved);
+            // 驗證並修復本地數據
+            localUserData = validateAndFixUserData(localUserData);
+            setUser(localUserData);
           } else {
             const newUser: UserState = {
               username: currentUser,
@@ -200,9 +206,12 @@ const App: React.FC = () => {
           
           const mergedHoldings = Array.from(mergedHoldingsMap.values());
           
-          // 使用最新的余额（取较大的值，确保不丢失资金）
-          // 但也要考虑交易记录，理论上应该基于历史记录计算
-          const mergedBalance = Math.max(user.balance, syncedData.balance);
+          // 基于合并后的交易记录重新计算余额和持仓（确保数据一致性）
+          const mergedBalance = recalculateBalance(mergedHistory);
+          const recalculatedHoldings = recalculateHoldings(mergedHistory);
+          
+          // 使用重新计算的持仓（更准确）
+          const finalHoldings = recalculatedHoldings.length > 0 ? recalculatedHoldings : mergedHoldings;
           
           // 检查数据是否有变化
           const historyChanged = mergedHistory.length !== user.history.length || 
@@ -210,10 +219,10 @@ const App: React.FC = () => {
               const localTx = user.history[idx];
               return !localTx || tx.id !== localTx.id || tx.timestamp !== localTx.timestamp;
             });
-          const holdingsChanged = mergedHoldings.length !== user.holdings.length ||
-            mergedHoldings.some(h => {
+          const holdingsChanged = finalHoldings.length !== user.holdings.length ||
+            finalHoldings.some(h => {
               const localH = user.holdings.find(lh => lh.symbol === h.symbol);
-              return !localH || localH.shares !== h.shares;
+              return !localH || localH.shares !== h.shares || Math.abs(localH.averagePrice - h.averagePrice) > 0.01;
             });
           const balanceChanged = Math.abs(mergedBalance - user.balance) > 0.01;
           
@@ -224,13 +233,16 @@ const App: React.FC = () => {
               balanceChanged,
               localHistoryCount: user.history.length,
               cloudHistoryCount: syncedData.history.length,
-              mergedHistoryCount: mergedHistory.length
+              mergedHistoryCount: mergedHistory.length,
+              localBalance: user.balance,
+              cloudBalance: syncedData.balance,
+              calculatedBalance: mergedBalance
             });
             
             setUser({
               ...syncedData,
               history: mergedHistory,
-              holdings: mergedHoldings,
+              holdings: finalHoldings,
               balance: mergedBalance,
               lastUpdate: Date.now()
             });
@@ -333,39 +345,18 @@ const App: React.FC = () => {
 
     setUser(prev => {
       if (!prev) return null;
-      let updatedBalance = prev.balance;
-      if (type === TransactionType.BUY) updatedBalance -= totalCost;
-
+      
+      // 添加新交易到历史记录
       const updatedHistory = [newTransaction, ...prev.history];
-      const updatedHoldings = [...prev.holdings];
-      const hIndex = updatedHoldings.findIndex(h => h.symbol === selectedStock.symbol);
-
-      if (type === TransactionType.BUY) {
-        if (hIndex >= 0) {
-          const h = updatedHoldings[hIndex];
-          const newTotalShares = h.shares + totalShares;
-          const newAvg = (h.shares * h.averagePrice + totalAmount) / newTotalShares;
-          updatedHoldings[hIndex] = { ...h, shares: newTotalShares, averagePrice: parseFloat(newAvg.toFixed(2)) };
-        } else {
-          updatedHoldings.push({
-            symbol: selectedStock.symbol,
-            name: selectedStock.name,
-            shares: totalShares,
-            averagePrice: selectedStock.price,
-            currentPrice: selectedStock.price
-          });
-        }
-      } else {
-        const h = updatedHoldings[hIndex];
-        const remaining = h.shares - totalShares;
-        if (remaining <= 0) updatedHoldings.splice(hIndex, 1);
-        else updatedHoldings[hIndex] = { ...h, shares: remaining };
-      }
-
+      
+      // 基于所有交易记录重新计算余额和持仓（确保数据一致性）
+      const recalculatedBalance = recalculateBalance(updatedHistory);
+      const recalculatedHoldings = recalculateHoldings(updatedHistory);
+      
       const updatedUser = { 
         ...prev, 
-        balance: updatedBalance, 
-        holdings: updatedHoldings, 
+        balance: recalculatedBalance, // 使用重新计算的余额
+        holdings: recalculatedHoldings, // 使用重新计算的持仓
         history: updatedHistory,
         lastUpdate: Date.now() // 更新时间戳
       };

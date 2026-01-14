@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Layout from './components/Layout';
-import MarketChart from './components/MarketChart';
+import MarketChart, { ChartTimeframe } from './components/MarketChart';
 import Auth from './components/Auth';
+import Leaderboard from './components/Leaderboard';
+import Profile from './components/Profile';
 import { INITIAL_BALANCE } from './constants';
 import { UserState, Stock, Transaction, TransactionType, TradingMode } from './types';
 import { fetchRealTimeStockData, isMarketOpen } from './services/stockService';
@@ -20,7 +22,7 @@ const App: React.FC = () => {
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [tradeQuantity, setTradeQuantity] = useState<number>(0);
   const [tradeMode, setTradeMode] = useState<TradingMode>(TradingMode.WHOLE);
-  const [chartTimeframe, setChartTimeframe] = useState<'1D' | '1W' | '1M'>('1D');
+  const [chartTimeframe, setChartTimeframe] = useState<ChartTimeframe>('1D');
 
   // Load user data on login (with cloud sync)
   useEffect(() => {
@@ -417,7 +419,13 @@ const App: React.FC = () => {
                         </div>
                      </div>
 
-                     <MarketChart data={chartData} color={selectedStock.change >= 0 ? '#ef4444' : '#16a34a'} showDetails />
+                     <MarketChart 
+                       data={chartData} 
+                       color={selectedStock.change >= 0 ? '#ef4444' : '#16a34a'} 
+                       showDetails 
+                       timeframe={chartTimeframe}
+                       onTimeframeChange={setChartTimeframe}
+                     />
 
                      <div className="grid grid-cols-2 gap-3">
                         <div className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100">
@@ -505,6 +513,22 @@ const App: React.FC = () => {
                  </div>
               </div>
             </div>
+          )}
+
+          {activeTab === 'leaderboard' && (
+            <Leaderboard 
+              currentUser={currentUser} 
+              userData={user} 
+              stocks={stocks}
+            />
+          )}
+
+          {activeTab === 'profile' && (
+            <Profile 
+              user={user} 
+              stocks={stocks}
+              onLogout={handleLogout}
+            />
           )}
         </>
       )}

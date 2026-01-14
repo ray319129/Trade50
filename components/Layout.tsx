@@ -14,6 +14,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, bala
     { id: 'trade', label: '下單', icon: '💸' },
     { id: 'portfolio', label: '庫存', icon: '💼' },
     { id: 'history', label: '紀錄', icon: '📋' },
+    { id: 'leaderboard', label: '排行榜', icon: '🏆' },
+    { id: 'profile', label: '個人', icon: '👤' },
   ];
 
   return (

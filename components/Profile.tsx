@@ -10,7 +10,7 @@ interface ProfileProps {
   onReset: () => void;
 }
 
-const Profile: React.FC<ProfileProps> = ({ user, stocks, onLogout }) => {
+const Profile: React.FC<ProfileProps> = ({ user, stocks, onLogout, onReset }) => {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isLoadingEmail, setIsLoadingEmail] = useState(true);
 

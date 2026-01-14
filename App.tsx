@@ -7,6 +7,7 @@ import { INITIAL_BALANCE } from './constants';
 import { UserState, Stock, Transaction, TransactionType, TradingMode } from './types';
 import { fetchRealTimeStockData, isMarketOpen } from './services/stockService';
 import { calculateFees, getSettlementDate, processSettlements } from './services/tradingService';
+import { userDataService, authService, isCloudSyncEnabled } from './services/supabaseService';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('tw50_current_user'));
@@ -21,25 +22,56 @@ const App: React.FC = () => {
   const [tradeMode, setTradeMode] = useState<TradingMode>(TradingMode.WHOLE);
   const [chartTimeframe, setChartTimeframe] = useState<'1D' | '1W' | '1M'>('1D');
 
-  // Load user data on login
+  // Load user data on login (with cloud sync)
   useEffect(() => {
     if (currentUser) {
-      const saved = localStorage.getItem(`tw50_user_${currentUser}`);
-      if (saved) {
-        setUser(JSON.parse(saved));
-      } else {
-        const newUser: UserState = {
-          username: currentUser,
-          balance: INITIAL_BALANCE,
-          pendingSettlementCash: 0,
-          holdings: [],
-          history: [],
-          lastUpdate: Date.now(),
-          isBankrupt: false
-        };
-        setUser(newUser);
-        localStorage.setItem(`tw50_user_${currentUser}`, JSON.stringify(newUser));
-      }
+      const loadUserData = async () => {
+        try {
+          // 先從雲端載入（如果啟用）
+          let userData = await userDataService.loadUserData(currentUser);
+          
+          if (!userData) {
+            // 如果雲端沒有數據，創建新用戶
+            userData = {
+              username: currentUser,
+              balance: INITIAL_BALANCE,
+              pendingSettlementCash: 0,
+              holdings: [],
+              history: [],
+              lastUpdate: Date.now(),
+              isBankrupt: false
+            };
+            // 保存到雲端和本地
+            await userDataService.saveUserData(userData);
+          } else {
+            // 如果雲端有數據，同步到本地
+            localStorage.setItem(`tw50_user_${currentUser}`, JSON.stringify(userData));
+          }
+          
+          setUser(userData);
+        } catch (err) {
+          console.error('載入用戶數據失敗:', err);
+          // 降級到本地存儲
+          const saved = localStorage.getItem(`tw50_user_${currentUser}`);
+          if (saved) {
+            setUser(JSON.parse(saved));
+          } else {
+            const newUser: UserState = {
+              username: currentUser,
+              balance: INITIAL_BALANCE,
+              pendingSettlementCash: 0,
+              holdings: [],
+              history: [],
+              lastUpdate: Date.now(),
+              isBankrupt: false
+            };
+            setUser(newUser);
+            localStorage.setItem(`tw50_user_${currentUser}`, JSON.stringify(newUser));
+          }
+        }
+      };
+      
+      loadUserData();
     }
   }, [currentUser]);
 
@@ -97,17 +129,51 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, [user?.username, user?.isBankrupt]);
 
-  // Persistence
+  // Persistence with cloud sync
   useEffect(() => {
-    if (user) localStorage.setItem(`tw50_user_${user.username}`, JSON.stringify(user));
+    if (user) {
+      // 保存到本地（立即）
+      localStorage.setItem(`tw50_user_${user.username}`, JSON.stringify(user));
+      
+      // 保存到雲端（異步，不阻塞）
+      userDataService.saveUserData(user).catch(err => {
+        console.error('雲端同步失敗:', err);
+      });
+    }
   }, [user]);
+
+  // Periodic cloud sync (every 30 seconds)
+  useEffect(() => {
+    if (!currentUser || !isCloudSyncEnabled()) return;
+    
+    const syncInterval = setInterval(async () => {
+      try {
+        const syncedData = await userDataService.syncUserData(currentUser);
+        if (syncedData && user) {
+          // 如果雲端數據更新，合併數據（保留本地最新操作）
+          const localTimestamp = user.lastUpdate || 0;
+          const cloudTimestamp = syncedData.lastUpdate || 0;
+          
+          // 如果雲端數據更新，使用雲端數據
+          if (cloudTimestamp > localTimestamp) {
+            setUser(syncedData);
+          }
+        }
+      } catch (err) {
+        console.error('定期同步失敗:', err);
+      }
+    }, 30000); // 每30秒同步一次
+    
+    return () => clearInterval(syncInterval);
+  }, [currentUser, user]);
 
   const handleLogin = (username: string) => {
     setCurrentUser(username);
     localStorage.setItem('tw50_current_user', username);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await authService.logout();
     setCurrentUser(null);
     setUser(null);
     localStorage.removeItem('tw50_current_user');

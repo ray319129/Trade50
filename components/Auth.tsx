@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { authService, isCloudSyncEnabled } from '../services/supabaseService';
 
 interface AuthProps {
   onLogin: (username: string) => void;
@@ -10,22 +11,38 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleAuth = (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) return setError('請輸入帳號密碼');
-
-    const authData = JSON.parse(localStorage.getItem('tw50_auth') || '{"users":{}}');
     
-    if (isRegister) {
-      if (authData.users[username]) return setError('帳號已存在');
-      authData.users[username] = password;
-      localStorage.setItem('tw50_auth', JSON.stringify(authData));
-      alert('註冊成功！請登入');
-      setIsRegister(false);
-    } else {
-      if (authData.users[username] !== password) return setError('帳號或密碼錯誤');
-      onLogin(username);
+    setIsLoading(true);
+    setError('');
+
+    try {
+      if (isRegister) {
+        const result = await authService.register(username, password);
+        if (result.success) {
+          alert('註冊成功！請登入');
+          setIsRegister(false);
+          setPassword('');
+        } else {
+          setError(result.error || '註冊失敗');
+        }
+      } else {
+        const result = await authService.login(username, password);
+        if (result.success) {
+          localStorage.setItem('tw50_current_user', username);
+          onLogin(username);
+        } else {
+          setError(result.error || '登入失敗');
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || '操作失敗，請稍後再試');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -62,9 +79,18 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
           </div>
           {error && <p className="text-red-400 text-xs font-bold text-center">{error}</p>}
           
-          <button className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-2xl shadow-xl shadow-blue-600/20 transition-all active:scale-95">
-            {isRegister ? '立即註冊' : '登入系統'}
+          <button 
+            disabled={isLoading}
+            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-4 rounded-2xl shadow-xl shadow-blue-600/20 transition-all active:scale-95"
+          >
+            {isLoading ? '處理中...' : (isRegister ? '立即註冊' : '登入系統')}
           </button>
+          
+          {isCloudSyncEnabled() && (
+            <p className="text-xs text-green-400 text-center mt-2">
+              ✓ 雲端同步已啟用，可在多裝置使用
+            </p>
+          )}
         </form>
 
         <div className="mt-8 text-center">

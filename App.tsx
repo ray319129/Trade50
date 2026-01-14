@@ -5,6 +5,7 @@ import MarketChart, { ChartTimeframe } from './components/MarketChart';
 import Auth from './components/Auth';
 import Leaderboard from './components/Leaderboard';
 import Profile from './components/Profile';
+import TradeConfirmDialog from './components/TradeConfirmDialog';
 import { INITIAL_BALANCE } from './constants';
 import { UserState, Stock, Transaction, TransactionType, TradingMode } from './types';
 import { fetchRealTimeStockData, isMarketOpen } from './services/stockService';
@@ -23,6 +24,15 @@ const App: React.FC = () => {
   const [tradeQuantity, setTradeQuantity] = useState<number>(0);
   const [tradeMode, setTradeMode] = useState<TradingMode>(TradingMode.WHOLE);
   const [chartTimeframe, setChartTimeframe] = useState<ChartTimeframe>('1D');
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [pendingTrade, setPendingTrade] = useState<{
+    type: TransactionType;
+    fee: number;
+    tax: number;
+    totalAmount: number;
+    totalCost: number;
+    totalShares: number;
+  } | null>(null);
 
   // Load user data on login (with cloud sync)
   useEffect(() => {
@@ -193,14 +203,49 @@ const App: React.FC = () => {
     const { fee, tax, total } = calculateFees(selectedStock.price, totalShares, type);
     const cost = type === TransactionType.BUY ? (total + fee) : (total - fee - tax);
 
+    // 检查余额（买入时）
     if (type === TransactionType.BUY && user.balance < cost) {
       alert("❌ 餘額不足以支付委託金額及手續費。");
+      return;
+    }
+
+    // 检查库存（卖出时）
+    const holding = user.holdings.find(h => h.symbol === selectedStock.symbol);
+    if (type === TransactionType.SELL && (!holding || holding.shares < totalShares)) {
+      alert("❌ 庫存股數不足。");
+      return;
+    }
+
+    // 显示确认对话框
+    setPendingTrade({
+      type,
+      fee,
+      tax,
+      totalAmount: totalAmount,
+      totalCost: cost,
+      totalShares
+    });
+    setShowConfirmDialog(true);
+  };
+
+  const confirmTrade = () => {
+    if (!selectedStock || !user || !pendingTrade) return;
+
+    const { type, fee, tax, totalAmount, totalCost, totalShares } = pendingTrade;
+
+    // 再次检查余额和库存（防止在确认期间数据变化）
+    if (type === TransactionType.BUY && user.balance < totalCost) {
+      alert("❌ 餘額不足以支付委託金額及手續費。");
+      setShowConfirmDialog(false);
+      setPendingTrade(null);
       return;
     }
 
     const holding = user.holdings.find(h => h.symbol === selectedStock.symbol);
     if (type === TransactionType.SELL && (!holding || holding.shares < totalShares)) {
       alert("❌ 庫存股數不足。");
+      setShowConfirmDialog(false);
+      setPendingTrade(null);
       return;
     }
 
@@ -215,7 +260,7 @@ const App: React.FC = () => {
       price: selectedStock.price,
       fee,
       tax,
-      totalAmount: total,
+      totalAmount: totalAmount,
       timestamp: now,
       settlementDate: getSettlementDate(now),
       isSettled: false
@@ -224,7 +269,7 @@ const App: React.FC = () => {
     setUser(prev => {
       if (!prev) return null;
       let updatedBalance = prev.balance;
-      if (type === TransactionType.BUY) updatedBalance -= cost;
+      if (type === TransactionType.BUY) updatedBalance -= totalCost;
 
       const updatedHistory = [newTransaction, ...prev.history];
       const updatedHoldings = [...prev.holdings];
@@ -234,7 +279,7 @@ const App: React.FC = () => {
         if (hIndex >= 0) {
           const h = updatedHoldings[hIndex];
           const newTotalShares = h.shares + totalShares;
-          const newAvg = (h.shares * h.averagePrice + total) / newTotalShares;
+          const newAvg = (h.shares * h.averagePrice + totalAmount) / newTotalShares;
           updatedHoldings[hIndex] = { ...h, shares: newTotalShares, averagePrice: parseFloat(newAvg.toFixed(2)) };
         } else {
           updatedHoldings.push({
@@ -257,6 +302,8 @@ const App: React.FC = () => {
 
     alert(`✅ ${type === TransactionType.BUY ? '買入' : '賣出'}委託成功！\n數量：${totalShares.toLocaleString()} 股\n價格：$${selectedStock.price}\n將於 T+2 進行交割。`);
     setTradeQuantity(0);
+    setShowConfirmDialog(false);
+    setPendingTrade(null);
   };
 
   if (!currentUser || !user) return <Auth onLogin={handleLogin} />;
@@ -531,6 +578,33 @@ const App: React.FC = () => {
             />
           )}
         </>
+      )}
+
+      {/* Trade Confirmation Dialog */}
+      {showConfirmDialog && selectedStock && user && pendingTrade && (
+        <TradeConfirmDialog
+          isOpen={showConfirmDialog}
+          onConfirm={confirmTrade}
+          onCancel={() => {
+            setShowConfirmDialog(false);
+            setPendingTrade(null);
+          }}
+          type={pendingTrade.type}
+          stockName={selectedStock.name}
+          stockSymbol={selectedStock.symbol}
+          price={selectedStock.price}
+          quantity={tradeQuantity}
+          mode={tradeMode}
+          totalShares={pendingTrade.totalShares}
+          fee={pendingTrade.fee}
+          tax={pendingTrade.tax}
+          totalAmount={pendingTrade.totalAmount}
+          totalCost={pendingTrade.totalCost}
+          currentBalance={user.balance}
+          remainingBalance={pendingTrade.type === TransactionType.BUY 
+            ? user.balance - pendingTrade.totalCost 
+            : undefined}
+        />
       )}
     </Layout>
   );

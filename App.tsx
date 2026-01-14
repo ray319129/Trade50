@@ -269,6 +269,40 @@ const App: React.FC = () => {
     localStorage.removeItem('tw50_current_user_email');
   };
 
+  const handleReset = async () => {
+    if (!currentUser || !user) return;
+    
+    // 创建重置后的用户数据
+    const resetUser: UserState = {
+      username: currentUser,
+      balance: INITIAL_BALANCE,
+      pendingSettlementCash: 0,
+      holdings: [],
+      history: [],
+      lastUpdate: Date.now(),
+      isBankrupt: false
+    };
+    
+    // 更新状态
+    setUser(resetUser);
+    
+    // 保存到本地
+    localStorage.setItem(`tw50_user_${currentUser}`, JSON.stringify(resetUser));
+    
+    // 同步到云端
+    if (isCloudSyncEnabled()) {
+      try {
+        await userDataService.saveUserData(resetUser);
+        alert('✅ 帳號已重置！所有數據已清除並同步到雲端。');
+      } catch (err) {
+        console.error('重置後同步失敗:', err);
+        alert('⚠️ 帳號已重置，但雲端同步失敗。請檢查網路連線。');
+      }
+    } else {
+      alert('✅ 帳號已重置！所有數據已清除。');
+    }
+  };
+
   const handleTrade = (type: TransactionType) => {
     if (!selectedStock || tradeQuantity <= 0 || !user) return;
     if (user.isBankrupt) {
@@ -412,7 +446,7 @@ const App: React.FC = () => {
   const chartData = selectedStock ? selectedStock.history : [];
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={user} stocks={stocks}>
+    <Layout activeTab={activeTab} setActiveTab={setActiveTab} balance={user.balance}>
       <div className="flex justify-between items-center mb-6">
         <div className="bg-slate-200 px-4 py-1.5 rounded-full text-slate-600 text-[10px] font-black uppercase flex items-center gap-3">
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> {user.username}</span>
@@ -676,6 +710,7 @@ const App: React.FC = () => {
               user={user} 
               stocks={stocks}
               onLogout={handleLogout}
+              onReset={handleReset}
             />
           )}
         </>

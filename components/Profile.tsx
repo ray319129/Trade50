@@ -7,6 +7,7 @@ interface ProfileProps {
   user: UserState;
   stocks: any[];
   onLogout: () => void;
+  onReset: () => void;
 }
 
 const Profile: React.FC<ProfileProps> = ({ user, stocks, onLogout }) => {
@@ -176,12 +177,24 @@ const Profile: React.FC<ProfileProps> = ({ user, stocks, onLogout }) => {
             </div>
           </div>
 
-          <button
-            onClick={onLogout}
-            className="w-full bg-red-500 hover:bg-red-600 text-white py-4 rounded-2xl font-black transition-colors"
-          >
-            登出系統
-          </button>
+          <div className="space-y-3">
+            <button
+              onClick={onLogout}
+              className="w-full bg-red-500 hover:bg-red-600 text-white py-4 rounded-2xl font-black transition-colors"
+            >
+              登出系統
+            </button>
+            <button
+              onClick={() => {
+                if (confirm('⚠️ 確定要重置帳號嗎？\n\n此操作將：\n- 清除所有交易記錄\n- 清除所有持倉\n- 重置餘額為初始金額\n- 清除所有歷史數據\n\n此操作無法復原！')) {
+                  onReset();
+                }
+              }}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white py-4 rounded-2xl font-black transition-colors"
+            >
+              🔄 重置帳號
+            </button>
+          </div>
         </div>
       </div>
     </div>

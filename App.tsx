@@ -221,7 +221,7 @@ const App: React.FC = () => {
       type,
       fee,
       tax,
-      totalAmount: total,
+      totalAmount: totalAmount,
       totalCost: cost,
       totalShares
     });

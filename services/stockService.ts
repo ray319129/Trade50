@@ -32,7 +32,6 @@ export const fetchRealTimeStockData = async (retries = 3): Promise<Stock[]> => {
     try {
       const symbols = TAIWAN_50_STOCKS.map(s => `tse_${s.symbol}.tw`).join('|');
       const apiUrl = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${symbols}&json=1&delay=0&_=${Date.now()}`;
-      // 使用 allorigins.win 作为 CORS proxy
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(apiUrl)}`;
 
       const controller = new AbortController();

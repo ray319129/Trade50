@@ -74,6 +74,11 @@ CREATE POLICY "Users can update own data" ON user_data
 CREATE INDEX IF NOT EXISTS idx_user_data_user_id ON user_data(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_data_username ON user_data(username);
 CREATE INDEX IF NOT EXISTS idx_user_data_updated_at ON user_data(updated_at);
+
+-- 建立排行榜讀取政策：允許所有已認證用戶讀取排行榜數據
+CREATE POLICY "Users can read leaderboard data" ON user_data
+  FOR SELECT
+  USING (auth.role() = 'authenticated');
 ```
 
 3. **點擊 "Run" 執行 SQL**

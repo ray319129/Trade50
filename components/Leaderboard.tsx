@@ -23,6 +23,13 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
 
   useEffect(() => {
     loadLeaderboard();
+    
+    // 定期更新排行榜（每 30 秒）
+    const interval = setInterval(() => {
+      loadLeaderboard();
+    }, 30000);
+    
+    return () => clearInterval(interval);
   }, [userData, stocks, sortBy]);
 
   const loadLeaderboard = async () => {

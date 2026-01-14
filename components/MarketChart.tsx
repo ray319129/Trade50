@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
 
 export type ChartTimeframe = '1D' | '5D' | '1M' | '6M';
@@ -169,6 +169,37 @@ const MarketChart: React.FC<MarketChartProps> = ({
   };
 
   const filteredData = getFilteredData();
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+  // 确保容器有尺寸后再渲染图表
+  useEffect(() => {
+    if (showDetails && chartContainerRef.current) {
+      const updateSize = () => {
+        if (chartContainerRef.current) {
+          const { width, height } = chartContainerRef.current.getBoundingClientRect();
+          if (width > 0 && height > 0) {
+            setContainerSize({ width, height });
+          }
+        }
+      };
+      
+      updateSize();
+      const resizeObserver = new ResizeObserver(updateSize);
+      resizeObserver.observe(chartContainerRef.current);
+      
+      return () => resizeObserver.disconnect();
+    }
+  }, [showDetails, filteredData.length]);
+
+  // 如果没有数据，显示占位符
+  if (filteredData.length === 0) {
+    return (
+      <div className="w-full h-48 sm:h-64 flex items-center justify-center bg-slate-50 rounded-2xl">
+        <p className="text-slate-400 text-sm font-bold">暫無數據</p>
+      </div>
+    );
+  }
 
   if (showDetails) {
     return (
@@ -190,9 +221,14 @@ const MarketChart: React.FC<MarketChartProps> = ({
             ))}
           </div>
         )}
-        <div className="h-48 sm:h-64 w-full" style={{ minWidth: 0 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={filteredData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+        <div 
+          ref={chartContainerRef}
+          className="h-48 sm:h-64 w-full" 
+          style={{ minWidth: '200px', minHeight: '192px' }}
+        >
+          {containerSize.width > 0 && containerSize.height > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={filteredData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
               <defs>
                 <linearGradient id="colorPriceDetail" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={color} stopOpacity={0.2}/>
@@ -225,14 +261,26 @@ const MarketChart: React.FC<MarketChartProps> = ({
                 animationDuration={600}
               />
             </AreaChart>
-          </ResponsiveContainer>
+            </ResponsiveContainer>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
+  // 小图表（用于列表显示）
+  if (data.length === 0) {
+    return (
+      <div className="h-10 w-20 sm:w-24 bg-slate-100 rounded"></div>
+    );
+  }
+
   return (
-    <div className="h-10 w-20 sm:w-24" style={{ minWidth: 0 }}>
+    <div className="h-10 w-20 sm:w-24" style={{ minWidth: '80px', minHeight: '40px' }}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
           <YAxis hide domain={['dataMin - 0.5', 'dataMax + 0.5']} />

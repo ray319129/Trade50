@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
-import { UserState } from '../types';
+import { UserState, GameMode } from '../types';
 import { authService } from '../services/supabaseService';
 import { INITIAL_BALANCE } from '../constants';
+import { getModeData } from '../services/userDataHelper';
 
 interface ProfileProps {
   user: UserState;
   stocks: any[];
+  gameMode: GameMode;
   onLogout: () => void;
   onReset: () => void;
 }
 
-const Profile: React.FC<ProfileProps> = ({ user, stocks, onLogout, onReset }) => {
+const Profile: React.FC<ProfileProps> = ({ user, stocks, gameMode, onLogout, onReset }) => {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [isLoadingEmail, setIsLoadingEmail] = useState(true);
+  
+  // 获取当前模式的用户数据
+  const modeData = getModeData(user, gameMode);
 
   React.useEffect(() => {
     const loadEmail = async () => {
@@ -31,12 +36,12 @@ const Profile: React.FC<ProfileProps> = ({ user, stocks, onLogout, onReset }) =>
   // 计算总资产
   const calculateTotalAssets = (): number => {
     let holdingsValue = 0;
-    user.holdings.forEach(holding => {
+    modeData.holdings.forEach(holding => {
       const stock = stocks.find(s => s.symbol === holding.symbol);
       const currentPrice = stock?.price || holding.currentPrice;
       holdingsValue += currentPrice * holding.shares;
     });
-    return user.balance + holdingsValue;
+    return modeData.balance + holdingsValue;
   };
 
   // 计算盈亏
@@ -45,13 +50,13 @@ const Profile: React.FC<ProfileProps> = ({ user, stocks, onLogout, onReset }) =>
   const profitPercent = (profit / INITIAL_BALANCE) * 100;
 
   // 统计信息
-  const totalTransactions = user.history.length;
-  const buyTransactions = user.history.filter(t => t.type === 'BUY').length;
-  const sellTransactions = user.history.filter(t => t.type === 'SELL').length;
-  const totalHoldings = user.holdings.length;
+  const totalTransactions = modeData.history.length;
+  const buyTransactions = modeData.history.filter(t => t.type === 'BUY').length;
+  const sellTransactions = modeData.history.filter(t => t.type === 'SELL').length;
+  const totalHoldings = modeData.holdings.length;
 
   // 计算交易总额
-  const totalTradeVolume = user.history.reduce((sum, t) => sum + t.totalAmount, 0);
+  const totalTradeVolume = modeData.history.reduce((sum, t) => sum + t.totalAmount, 0);
 
   return (
     <div className="space-y-6">
@@ -171,7 +176,7 @@ const Profile: React.FC<ProfileProps> = ({ user, stocks, onLogout, onReset }) =>
               <div>
                 <p className="text-[10px] text-slate-400 font-black uppercase mb-1">可用現金</p>
                 <p className="text-xl font-black text-slate-900">
-                  ${user.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  ${modeData.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </p>
               </div>
             </div>

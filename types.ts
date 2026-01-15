@@ -9,6 +9,11 @@ export enum TradingMode {
   ODD = 'ODD'     // 零股
 }
 
+export enum GameMode {
+  REAL = 'REAL',     // 真實模式：完全按照真實台股資訊
+  SIMULATION = 'SIMULATION' // 模擬模式：教學用模擬股市
+}
+
 export interface StockHistoryPoint {
   time: string;
   price: number;
@@ -54,12 +59,29 @@ export interface Holding {
 
 export interface UserState {
   username: string;
-  balance: number;
-  pendingSettlementCash: number;
-  holdings: Holding[];
-  history: Transaction[];
+  // 真實模式數據
+  realMode: {
+    balance: number;
+    pendingSettlementCash: number;
+    holdings: Holding[];
+    history: Transaction[];
+    isBankrupt: boolean;
+  };
+  // 模擬模式數據
+  simulationMode: {
+    balance: number;
+    pendingSettlementCash: number;
+    holdings: Holding[];
+    history: Transaction[];
+    isBankrupt: boolean;
+  };
   lastUpdate: number;
-  isBankrupt: boolean;
+  // 向後兼容：如果沒有模式數據，使用這些字段
+  balance?: number;
+  pendingSettlementCash?: number;
+  holdings?: Holding[];
+  history?: Transaction[];
+  isBankrupt?: boolean;
 }
 
 export interface AuthState {

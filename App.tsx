@@ -6,15 +6,22 @@ import Auth from './components/Auth';
 import Leaderboard from './components/Leaderboard';
 import Profile from './components/Profile';
 import TradeConfirmDialog from './components/TradeConfirmDialog';
+import GameModeSelector from './components/GameModeSelector';
 import { INITIAL_BALANCE } from './constants';
-import { UserState, Stock, Transaction, TransactionType, TradingMode } from './types';
+import { UserState, Stock, Transaction, TransactionType, TradingMode, GameMode } from './types';
 import { fetchRealTimeStockData, isMarketOpen } from './services/stockService';
+import { simulationStockService } from './services/simulationStockService';
 import { calculateFees, getSettlementDate, processSettlements } from './services/tradingService';
 import { userDataService, authService, isCloudSyncEnabled } from './services/supabaseService';
 import { recalculateBalance, recalculateHoldings, validateAndFixUserData } from './services/balanceCalculator';
+import { getModeData, updateModeData, validateAndFixUserDataWithMode, createNewUserData } from './services/userDataHelper';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('tw50_current_user'));
+  const [gameMode, setGameMode] = useState<GameMode>(() => {
+    const saved = localStorage.getItem('tw50_game_mode');
+    return (saved as GameMode) || GameMode.REAL;
+  });
   const [activeTab, setActiveTab] = useState('market');
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,21 +51,13 @@ const App: React.FC = () => {
           let userData = await userDataService.loadUserData(currentUser);
           
           if (!userData) {
-            // 如果雲端沒有數據，創建新用戶
-            userData = {
-              username: currentUser,
-              balance: INITIAL_BALANCE,
-              pendingSettlementCash: 0,
-              holdings: [],
-              history: [],
-              lastUpdate: Date.now(),
-              isBankrupt: false
-            };
+            // 如果雲端沒有數據，創建新用戶（支持雙模式）
+            userData = createNewUserData(currentUser);
             // 保存到雲端和本地
             await userDataService.saveUserData(userData);
           } else {
-            // 如果雲端有數據，驗證並修復數據一致性（基於交易記錄重新計算）
-            userData = validateAndFixUserData(userData);
+            // 如果雲端有數據，驗證並修復數據一致性（基於當前模式）
+            userData = validateAndFixUserDataWithMode(userData, gameMode);
             // 同步到本地
             localStorage.setItem(`tw50_user_${currentUser}`, JSON.stringify(userData));
           }
@@ -70,19 +69,11 @@ const App: React.FC = () => {
           const saved = localStorage.getItem(`tw50_user_${currentUser}`);
           if (saved) {
             let localUserData = JSON.parse(saved);
-            // 驗證並修復本地數據
-            localUserData = validateAndFixUserData(localUserData);
+            // 驗證並修復本地數據（基於當前模式）
+            localUserData = validateAndFixUserDataWithMode(localUserData, gameMode);
             setUser(localUserData);
           } else {
-            const newUser: UserState = {
-              username: currentUser,
-              balance: INITIAL_BALANCE,
-              pendingSettlementCash: 0,
-              holdings: [],
-              history: [],
-              lastUpdate: Date.now(),
-              isBankrupt: false
-            };
+            const newUser = createNewUserData(currentUser);
             setUser(newUser);
             localStorage.setItem(`tw50_user_${currentUser}`, JSON.stringify(newUser));
           }
@@ -91,14 +82,29 @@ const App: React.FC = () => {
       
       loadUserData();
     }
-  }, [currentUser]);
+  }, [currentUser, gameMode]);
 
   // Update market data: 15s interval for real-time stock updates to avoid rate limits
   useEffect(() => {
     const update = async () => {
       try {
         setError(null);
-        const data = await fetchRealTimeStockData();
+        let data: Stock[] = [];
+        
+        if (gameMode === GameMode.REAL) {
+          // 真實模式：使用真實台股數據
+          data = await fetchRealTimeStockData();
+        } else {
+          // 模擬模式：使用模擬股票數據
+          if (stocks.length === 0) {
+            // 首次加載，初始化模擬數據
+            data = simulationStockService.initializeStocks();
+          } else {
+            // 更新模擬數據
+            data = simulationStockService.updateStocks();
+          }
+        }
+        
         if (data.length > 0) {
           setStocks(data);
           setIsLoading(false);
@@ -116,9 +122,9 @@ const App: React.FC = () => {
       }
     };
     update();
-    const timer = setInterval(update, 15000);
+    const timer = setInterval(update, gameMode === GameMode.REAL ? 15000 : 5000); // 模擬模式更新更快
     return () => clearInterval(timer);
-  }, []);
+  }, [gameMode]);
 
   // Sync selectedStock with updated stock data
   useEffect(() => {
@@ -130,45 +136,49 @@ const App: React.FC = () => {
 
   // Settlement Processor
   useEffect(() => {
-    if (!user || user.isBankrupt) return;
+    if (!user) return;
+    const modeData = getModeData(user, gameMode);
+    if (modeData.isBankrupt) return;
+    
     const checkSettlement = () => {
       setUser(prev => {
         if (!prev) return null;
-        const { newHistory, newBalance, defaulted } = processSettlements(prev.history, prev.holdings, prev.balance);
+        const currentModeData = getModeData(prev, gameMode);
+        const { newHistory, newBalance, defaulted } = processSettlements(
+          currentModeData.history, 
+          currentModeData.holdings, 
+          currentModeData.balance
+        );
         
-        const historyChanged = JSON.stringify(newHistory) !== JSON.stringify(prev.history);
-        if (defaulted || newBalance !== prev.balance || historyChanged) {
-          // 创建更新后的用户数据
-          const updatedUser = { 
-            ...prev, 
-            history: newHistory, 
-            balance: newBalance, 
-            isBankrupt: prev.isBankrupt || defaulted 
-          };
-          
+        const historyChanged = JSON.stringify(newHistory) !== JSON.stringify(currentModeData.history);
+        if (defaulted || newBalance !== currentModeData.balance || historyChanged) {
           // 基于更新后的历史记录重新计算持仓（确保一致性）
           const recalculatedHoldings = recalculateHoldings(newHistory);
           
-          // 验证并修复数据一致性
-          const validatedUser = validateAndFixUserData({
-            ...updatedUser,
-            holdings: recalculatedHoldings
-          });
+          // 更新模式数据
+          const updatedModeData = {
+            ...currentModeData,
+            history: newHistory,
+            balance: newBalance,
+            holdings: recalculatedHoldings,
+            isBankrupt: currentModeData.isBankrupt || defaulted
+          };
           
-          return validatedUser;
+          // 更新用户数据
+          return updateModeData(prev, gameMode, updatedModeData);
         }
         return prev;
       });
     };
     const timer = setInterval(checkSettlement, 10000);
     return () => clearInterval(timer);
-  }, [user?.username, user?.isBankrupt]);
+  }, [user?.username, gameMode]);
 
   // Persistence with cloud sync
   useEffect(() => {
     if (user) {
-      // 验证并修复数据一致性（确保余额和持仓基于交易记录计算）
-      const validatedUser = validateAndFixUserData(user);
+      // 验证并修复数据一致性（基于当前模式）
+      const validatedUser = validateAndFixUserDataWithMode(user, gameMode);
       const updatedUser = { ...validatedUser, lastUpdate: Date.now() };
       
       // 保存到本地（立即）
@@ -179,7 +189,7 @@ const App: React.FC = () => {
         console.error('雲端同步失敗:', err);
       });
     }
-  }, [user]);
+  }, [user, gameMode]);
 
   // Periodic cloud sync (every 10 seconds for better real-time sync)
   useEffect(() => {
@@ -189,13 +199,17 @@ const App: React.FC = () => {
       try {
         const syncedData = await userDataService.syncUserData(currentUser);
         if (syncedData) {
+          // 获取当前模式的本地和云端数据
+          const localModeData = getModeData(user, gameMode);
+          const cloudModeData = getModeData(syncedData, gameMode);
+          
           // 合并数据：比较历史记录ID，确保不丢失任何交易
-          const localHistoryIds = new Set(user.history.map(t => t.id));
-          const cloudHistoryIds = new Set(syncedData.history.map(t => t.id));
+          const localHistoryIds = new Set(localModeData.history.map(t => t.id));
+          const cloudHistoryIds = new Set(cloudModeData.history.map(t => t.id));
           
           // 合并历史记录：保留所有交易（本地和云端）
-          const mergedHistory = [...user.history];
-          syncedData.history.forEach(cloudTx => {
+          const mergedHistory = [...localModeData.history];
+          cloudModeData.history.forEach(cloudTx => {
             if (!localHistoryIds.has(cloudTx.id)) {
               // 云端有本地没有的交易，添加进来
               mergedHistory.push(cloudTx);
@@ -205,53 +219,49 @@ const App: React.FC = () => {
           // 按时间戳倒序排序（最新的在前）
           mergedHistory.sort((a, b) => b.timestamp - a.timestamp);
           
-          // 验证并修复云端数据（确保数据一致性）
-          const validatedSyncedData = validateAndFixUserData(syncedData);
-          
           // 基于合并后的交易记录重新计算余额和持仓（确保数据一致性）
           const mergedBalance = recalculateBalance(mergedHistory);
           const recalculatedHoldings = recalculateHoldings(mergedHistory);
           
-          // 使用重新计算的持仓（基于所有交易记录，最准确）
-          const finalHoldings = recalculatedHoldings;
-          
           // 检查数据是否有变化
-          const historyChanged = mergedHistory.length !== user.history.length || 
+          const historyChanged = mergedHistory.length !== localModeData.history.length || 
             mergedHistory.some((tx, idx) => {
-              const localTx = user.history[idx];
+              const localTx = localModeData.history[idx];
               return !localTx || tx.id !== localTx.id || tx.timestamp !== localTx.timestamp;
             });
-          const holdingsChanged = finalHoldings.length !== user.holdings.length ||
-            finalHoldings.some(h => {
-              const localH = user.holdings.find(lh => lh.symbol === h.symbol);
+          const holdingsChanged = recalculatedHoldings.length !== localModeData.holdings.length ||
+            recalculatedHoldings.some(h => {
+              const localH = localModeData.holdings.find(lh => lh.symbol === h.symbol);
               return !localH || localH.shares !== h.shares || Math.abs(localH.averagePrice - h.averagePrice) > 0.01;
             });
-          const balanceChanged = Math.abs(mergedBalance - user.balance) > 0.01;
+          const balanceChanged = Math.abs(mergedBalance - localModeData.balance) > 0.01;
           
           if (historyChanged || holdingsChanged || balanceChanged) {
             console.log('检测到数据变化，合并云端数据', {
               historyChanged,
               holdingsChanged,
               balanceChanged,
-              localHistoryCount: user.history.length,
-              cloudHistoryCount: syncedData.history.length,
+              localHistoryCount: localModeData.history.length,
+              cloudHistoryCount: cloudModeData.history.length,
               mergedHistoryCount: mergedHistory.length,
-              localBalance: user.balance,
-              cloudBalance: syncedData.balance,
+              localBalance: localModeData.balance,
+              cloudBalance: cloudModeData.balance,
               calculatedBalance: mergedBalance
             });
             
-            // 创建合并后的用户数据，使用重新计算的余额和持仓
-            const mergedUser: UserState = {
-              ...validatedSyncedData,
+            // 更新模式数据
+            const updatedModeData = {
+              ...localModeData,
               history: mergedHistory,
-              holdings: finalHoldings,
-              balance: mergedBalance,
-              lastUpdate: Date.now()
+              holdings: recalculatedHoldings,
+              balance: mergedBalance
             };
             
-            // 再次验证合并后的数据
-            const finalUser = validateAndFixUserData(mergedUser);
+            // 更新用户数据（只更新当前模式）
+            const updatedUser = updateModeData(user, gameMode, updatedModeData);
+            
+            // 验证并修复数据
+            const finalUser = validateAndFixUserDataWithMode(updatedUser, gameMode);
             
             setUser(finalUser);
           }
@@ -262,7 +272,7 @@ const App: React.FC = () => {
     }, 10000); // 每10秒同步一次，提高实时性
     
     return () => clearInterval(syncInterval);
-  }, [currentUser, user]);
+  }, [currentUser, user, gameMode]);
 
   const handleLogin = (username: string) => {
     setCurrentUser(username);
@@ -280,16 +290,17 @@ const App: React.FC = () => {
   const handleReset = async () => {
     if (!currentUser || !user) return;
     
-    // 创建重置后的用户数据
-    const resetUser: UserState = {
-      username: currentUser,
+    // 只重置当前模式的数据
+    const resetModeData = {
       balance: INITIAL_BALANCE,
       pendingSettlementCash: 0,
       holdings: [],
       history: [],
-      lastUpdate: Date.now(),
       isBankrupt: false
     };
+    
+    // 更新用户数据（只重置当前模式）
+    const resetUser = updateModeData(user, gameMode, resetModeData);
     
     // 更新状态
     setUser(resetUser);
@@ -301,19 +312,21 @@ const App: React.FC = () => {
     if (isCloudSyncEnabled()) {
       try {
         await userDataService.saveUserData(resetUser);
-        alert('✅ 帳號已重置！所有數據已清除並同步到雲端。');
+        alert(`✅ ${gameMode === GameMode.REAL ? '真實' : '模擬'}模式已重置！數據已清除並同步到雲端。`);
       } catch (err) {
         console.error('重置後同步失敗:', err);
-        alert('⚠️ 帳號已重置，但雲端同步失敗。請檢查網路連線。');
+        alert('⚠️ 模式已重置，但雲端同步失敗。請檢查網路連線。');
       }
     } else {
-      alert('✅ 帳號已重置！所有數據已清除。');
+      alert(`✅ ${gameMode === GameMode.REAL ? '真實' : '模擬'}模式已重置！數據已清除。`);
     }
   };
 
   const handleTrade = (type: TransactionType) => {
     if (!selectedStock || tradeQuantity <= 0 || !user) return;
-    if (user.isBankrupt) {
+    const modeData = getModeData(user, gameMode);
+    
+    if (modeData.isBankrupt) {
       alert("⚠️ 帳號已被凍結：因發生違約交割（T+2 結算時可用現金不足），您已失去交易資格。");
       return;
     }
@@ -323,13 +336,13 @@ const App: React.FC = () => {
     const cost = type === TransactionType.BUY ? (total + fee) : (total - fee - tax);
 
     // 检查余额（买入时）
-    if (type === TransactionType.BUY && user.balance < cost) {
+    if (type === TransactionType.BUY && modeData.balance < cost) {
       alert("❌ 餘額不足以支付委託金額及手續費。");
       return;
     }
 
     // 检查库存（卖出时）
-    const holding = user.holdings.find(h => h.symbol === selectedStock.symbol);
+    const holding = modeData.holdings.find(h => h.symbol === selectedStock.symbol);
     if (type === TransactionType.SELL && (!holding || holding.shares < totalShares)) {
       alert("❌ 庫存股數不足。");
       return;
@@ -351,16 +364,17 @@ const App: React.FC = () => {
     if (!selectedStock || !user || !pendingTrade) return;
 
     const { type, fee, tax, totalAmount, totalCost, totalShares } = pendingTrade;
+    const modeData = getModeData(user, gameMode);
 
     // 再次检查余额和库存（防止在确认期间数据变化）
-    if (type === TransactionType.BUY && user.balance < totalCost) {
+    if (type === TransactionType.BUY && modeData.balance < totalCost) {
       alert("❌ 餘額不足以支付委託金額及手續費。");
       setShowConfirmDialog(false);
       setPendingTrade(null);
       return;
     }
 
-    const holding = user.holdings.find(h => h.symbol === selectedStock.symbol);
+    const holding = modeData.holdings.find(h => h.symbol === selectedStock.symbol);
     if (type === TransactionType.SELL && (!holding || holding.shares < totalShares)) {
       alert("❌ 庫存股數不足。");
       setShowConfirmDialog(false);
@@ -388,20 +402,24 @@ const App: React.FC = () => {
     setUser(prev => {
       if (!prev) return null;
       
+      const currentModeData = getModeData(prev, gameMode);
       // 添加新交易到历史记录
-      const updatedHistory = [newTransaction, ...prev.history];
+      const updatedHistory = [newTransaction, ...currentModeData.history];
       
       // 基于所有交易记录重新计算余额和持仓（确保数据一致性）
       const recalculatedBalance = recalculateBalance(updatedHistory);
       const recalculatedHoldings = recalculateHoldings(updatedHistory);
       
-      const updatedUser = { 
-        ...prev, 
-        balance: recalculatedBalance, // 使用重新计算的余额
-        holdings: recalculatedHoldings, // 使用重新计算的持仓
-        history: updatedHistory,
-        lastUpdate: Date.now() // 更新时间戳
+      // 更新模式数据
+      const updatedModeData = {
+        ...currentModeData,
+        balance: recalculatedBalance,
+        holdings: recalculatedHoldings,
+        history: updatedHistory
       };
+      
+      // 更新用户数据
+      const updatedUser = updateModeData(prev, gameMode, updatedModeData);
       
       // 立即保存到本地
       localStorage.setItem(`tw50_user_${updatedUser.username}`, JSON.stringify(updatedUser));
@@ -421,8 +439,8 @@ const App: React.FC = () => {
           // 等待状态更新完成后再同步
           const latestUser = JSON.parse(localStorage.getItem(`tw50_user_${user.username}`) || '{}');
           if (latestUser.username) {
-            // 确保使用重新计算的余额和持仓
-            const validatedUser = validateAndFixUserData(latestUser);
+            // 确保使用重新计算的余额和持仓（基于当前模式）
+            const validatedUser = validateAndFixUserDataWithMode(latestUser, gameMode);
             const updatedUser = { ...validatedUser, lastUpdate: Date.now() };
             await userDataService.saveUserData(updatedUser);
             console.log('交易後立即同步成功');
@@ -436,10 +454,25 @@ const App: React.FC = () => {
 
   if (!currentUser || !user) return <Auth onLogin={handleLogin} />;
 
+  // 获取当前模式的用户数据
+  const currentModeData = getModeData(user, gameMode);
+  
+  // 模式切换处理
+  const handleModeChange = (newMode: GameMode) => {
+    setGameMode(newMode);
+    localStorage.setItem('tw50_game_mode', newMode);
+    // 切换模式时，重置模拟股票数据（如果需要）
+    if (newMode === GameMode.SIMULATION && stocks.length === 0) {
+      const simStocks = simulationStockService.initializeStocks();
+      setStocks(simStocks);
+    }
+  };
+
   const chartData = selectedStock ? selectedStock.history : [];
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={setActiveTab} balance={user.balance}>
+    <Layout activeTab={activeTab} setActiveTab={setActiveTab} balance={currentModeData.balance}>
+      <GameModeSelector currentMode={gameMode} onModeChange={handleModeChange} />
       <div className="flex justify-between items-center mb-6">
         <div className="bg-slate-200 px-4 py-1.5 rounded-full text-slate-600 text-[10px] font-black uppercase flex items-center gap-3">
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> {user.username}</span>
@@ -447,7 +480,7 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {user.isBankrupt && (
+      {currentModeData.isBankrupt && (
         <div className="bg-gradient-to-r from-red-600 to-orange-600 text-white p-6 rounded-[2rem] mb-8 shadow-xl shadow-red-200 animate-bounce">
           <div className="flex items-start gap-4">
             <span className="text-4xl">🚫</span>
@@ -577,12 +610,12 @@ const App: React.FC = () => {
                   {selectedStock && (
                     <div className="pt-6 border-t border-slate-100 grid grid-cols-2 gap-4">
                       <button 
-                        disabled={user.isBankrupt}
+                        disabled={currentModeData.isBankrupt}
                         onClick={() => handleTrade(TransactionType.BUY)} 
                         className="bg-red-500 hover:bg-red-600 disabled:opacity-20 text-white py-6 rounded-3xl font-black text-xl shadow-xl shadow-red-200 transition-all active:scale-95"
                       >買進</button>
                       <button 
-                        disabled={user.isBankrupt}
+                        disabled={currentModeData.isBankrupt}
                         onClick={() => handleTrade(TransactionType.SELL)} 
                         className="bg-green-600 hover:bg-green-700 disabled:opacity-20 text-white py-6 rounded-3xl font-black text-xl shadow-xl shadow-green-200 transition-all active:scale-95"
                       >賣出</button>
@@ -641,7 +674,7 @@ const App: React.FC = () => {
                 <h2 className="text-3xl font-black text-slate-900">我的庫存</h2>
                 <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm">
                    <p className="text-[10px] text-slate-400 font-black uppercase mb-1">可用現金 (T+2)</p>
-                   <p className="text-2xl font-black text-blue-600">${user.balance.toLocaleString()}</p>
+                   <p className="text-2xl font-black text-blue-600">${currentModeData.balance.toLocaleString()}</p>
                 </div>
               </div>
               <div className="bg-white rounded-[2.5rem] border border-slate-200 overflow-hidden shadow-lg">
@@ -651,7 +684,7 @@ const App: React.FC = () => {
                         <tr><th className="p-8">股票</th><th className="p-8">數量</th><th className="p-8">均價</th><th className="p-8">現價</th><th className="p-8">損益</th></tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {user.holdings.map(h => {
+                        {currentModeData.holdings.map(h => {
                            const stock = stocks.find(s => s.symbol === h.symbol);
                            const currentPrice = stock?.price || h.averagePrice;
                            const profit = (currentPrice - h.averagePrice) * h.shares;
@@ -713,6 +746,7 @@ const App: React.FC = () => {
             <Profile 
               user={user} 
               stocks={stocks}
+              gameMode={gameMode}
               onLogout={handleLogout}
               onReset={handleReset}
             />
@@ -740,9 +774,9 @@ const App: React.FC = () => {
           tax={pendingTrade.tax}
           totalAmount={pendingTrade.totalAmount}
           totalCost={pendingTrade.totalCost}
-          currentBalance={user.balance}
+          currentBalance={currentModeData.balance}
           remainingBalance={pendingTrade.type === TransactionType.BUY 
-            ? user.balance - pendingTrade.totalCost 
+            ? currentModeData.balance - pendingTrade.totalCost 
             : undefined}
         />
       )}

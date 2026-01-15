@@ -511,7 +511,11 @@ const App: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex items-end justify-between">
-                       <MarketChart data={stock.history} color={stock.change >= 0 ? '#ef4444' : '#16a34a'} />
+                       <MarketChart 
+                         symbol={stock.symbol} 
+                         name={stock.name}
+                         color={stock.change >= 0 ? '#ef4444' : '#16a34a'} 
+                       />
                        <div className="bg-blue-50 px-3 py-1 rounded-full group-hover:bg-blue-600 transition-colors">
                           <span className="text-[10px] text-blue-600 group-hover:text-white font-black uppercase">下單</span>
                        </div>
@@ -595,7 +599,8 @@ const App: React.FC = () => {
                      </div>
 
                      <MarketChart 
-                       data={chartData} 
+                       symbol={selectedStock.symbol}
+                       name={selectedStock.name}
                        color={selectedStock.change >= 0 ? '#ef4444' : '#16a34a'} 
                        showDetails 
                        timeframe={chartTimeframe}

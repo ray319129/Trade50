@@ -1,174 +1,136 @@
 
-import React from 'react';
-import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip, XAxis } from 'recharts';
+import React, { useEffect, useRef } from 'react';
 
 export type ChartTimeframe = '1D' | '5D' | '1M' | '6M';
 
 interface MarketChartProps {
-  data: { time: string; price: number }[];
-  color: string;
+  symbol: string; // 股票代码，例如 '2330'
+  name?: string; // 股票名称
+  color?: string; // 保留用于兼容性，但 TradingView 有自己的颜色
   showDetails?: boolean;
   timeframe?: ChartTimeframe;
   onTimeframeChange?: (timeframe: ChartTimeframe) => void;
+  // 保留 data 用于兼容性，但 TradingView 会自己获取数据
+  data?: { time: string; price: number }[];
 }
 
+// TradingView 时间框架映射
+const timeframeMap: Record<ChartTimeframe, string> = {
+  '1D': '1D',
+  '5D': '5D',
+  '1M': '1M',
+  '6M': '6M'
+};
+
 const MarketChart: React.FC<MarketChartProps> = ({ 
-  data, 
-  color, 
+  symbol,
+  name,
+  color,
   showDetails = false, 
   timeframe = '1D',
-  onTimeframeChange 
+  onTimeframeChange,
+  data // 保留但不使用
 }) => {
-  // 根据时间范围从实时数据中采样
-  const getFilteredData = () => {
-    if (!data || data.length === 0) return [];
-    
-    const currentPrice = data[data.length - 1].price;
-    if (currentPrice === 0) return data;
-    
-    // 根据时间范围决定采样策略
-    let sampleInterval: number; // 每隔多少个数据点采样一个
-    let maxPoints: number; // 最多显示多少个点
-    
-    switch (timeframe) {
-      case '1D':
-        // 1天：显示所有数据点（最多200个）
-        sampleInterval = 1;
-        maxPoints = 200;
-        break;
-      case '5D':
-        // 5天：每4个点采样一个（约每小时一个点）
-        sampleInterval = Math.max(1, Math.floor(data.length / 40));
-        maxPoints = 40;
-        break;
-      case '1M':
-        // 1个月：每10个点采样一个（约每天一个点）
-        sampleInterval = Math.max(1, Math.floor(data.length / 30));
-        maxPoints = 30;
-        break;
-      case '6M':
-        // 6个月：每20个点采样一个（约每周一个点）
-        sampleInterval = Math.max(1, Math.floor(data.length / 26));
-        maxPoints = 26;
-        break;
-      default:
-        return data;
-    }
-    
-    // 从实时数据中采样
-    const sampledData: { time: string; price: number }[] = [];
-    
-    // 从后往前采样（最新的数据在最后）
-    for (let i = data.length - 1; i >= 0; i -= sampleInterval) {
-      if (sampledData.length >= maxPoints) break;
-      sampledData.unshift(data[i]); // 插入到开头，保持时间顺序
-    }
-    
-    // 如果采样后的数据点太少，补充一些历史数据
-    if (sampledData.length < 10 && data.length > sampledData.length) {
-      // 从更早的数据中补充
-      const needed = 10 - sampledData.length;
-      const additionalInterval = Math.max(1, Math.floor((data.length - sampledData.length * sampleInterval) / needed));
-      
-      for (let i = data.length - sampledData.length * sampleInterval - 1; i >= 0; i -= additionalInterval) {
-        if (sampledData.length >= maxPoints) break;
-        sampledData.unshift(data[i]);
-      }
-    }
-    
-    // 如果实时数据不够，基于现有数据生成扩展
-    if (sampledData.length < 5) {
-      // 数据太少，基于现有数据生成合理的扩展
-      const firstPrice = sampledData[0]?.price || currentPrice;
-      const priceRange = Math.abs(currentPrice - firstPrice) || currentPrice * 0.1;
-      
-      // 根据时间范围生成补充数据
-      let additionalPoints: number;
-      let intervalMinutes: number;
-      
-      switch (timeframe) {
-        case '5D':
-          additionalPoints = 40 - sampledData.length;
-          intervalMinutes = 60;
-          break;
-        case '1M':
-          additionalPoints = 30 - sampledData.length;
-          intervalMinutes = 24 * 60;
-          break;
-        case '6M':
-          additionalPoints = 26 - sampledData.length;
-          intervalMinutes = 7 * 24 * 60;
-          break;
-        default:
-          return sampledData;
-      }
-      
-      const now = new Date();
-      const extendedData: { time: string; price: number }[] = [];
-      
-      for (let i = additionalPoints - 1; i >= 0; i--) {
-        const pointTime = new Date(now.getTime() - (sampledData.length + i) * intervalMinutes * 60 * 1000);
-        
-        // 基于第一个价格生成历史价格
-        const progress = i / additionalPoints;
-        const price = firstPrice - priceRange * progress * 0.5; // 假设历史价格略低
-        
-        let timeStr: string;
-        if (timeframe === '5D') {
-          const dateStr = pointTime.toLocaleDateString('zh-TW', { month: 'short', day: 'numeric' });
-          const hourStr = pointTime.toLocaleTimeString('zh-TW', { hour: '2-digit' });
-          timeStr = `${dateStr} ${hourStr}`;
-        } else {
-          timeStr = pointTime.toLocaleDateString('zh-TW', { month: 'short', day: 'numeric' });
-        }
-        
-        extendedData.push({
-          time: timeStr,
-          price: parseFloat(Math.max(1, price).toFixed(2))
-        });
-      }
-      
-      return [...extendedData, ...sampledData];
-    }
-    
-    // 格式化时间标签（根据时间范围）
-    return sampledData.map((point) => {
-      // 解析时间字符串（格式：MM/DD HH:mm 或 HH:mm）
-      const timeParts = point.time.split(' ');
-      
-      if (timeframe === '1D') {
-        // 1天视图：只显示时间
-        if (timeParts.length > 1) {
-          return { ...point, time: timeParts[1] }; // 只取时间部分
-        }
-        return point;
-      } else if (timeframe === '5D') {
-        // 5天视图：显示日期和时间
-        if (timeParts.length > 1) {
-          const [date, time] = timeParts;
-          const [month, day] = date.split('/');
-          const hour = time.split(':')[0];
-          return { ...point, time: `${month}/${day} ${hour}` };
-        }
-        // 如果没有日期信息，使用当前日期
-        const now = new Date();
-        const dateStr = now.toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
-        return { ...point, time: `${dateStr} ${point.time}` };
-      } else {
-        // 1个月或6个月：只显示日期
-        if (timeParts.length > 1) {
-          const [date] = timeParts;
-          const [month, day] = date.split('/');
-          return { ...point, time: `${month}/${day}` };
-        }
-        // 如果没有日期信息，使用当前日期
-        const now = new Date();
-        return { ...point, time: now.toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }) };
-      }
-    });
-  };
+  const containerRef = useRef<HTMLDivElement>(null);
+  const scriptRef = useRef<HTMLScriptElement | null>(null);
+  const widgetRef = useRef<any>(null);
 
-  const filteredData = getFilteredData();
+  // 将台湾股票代码转换为 TradingView 格式 (TWSE:股票代码)
+  const tradingViewSymbol = `TWSE:${symbol}`;
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    // 为容器创建唯一 ID
+    const containerId = `tradingview_${symbol}_${Date.now()}`;
+    if (containerRef.current) {
+      containerRef.current.id = containerId;
+    }
+
+    // 加载 TradingView 脚本
+    const loadScript = () => {
+      if (scriptRef.current) {
+        // 脚本已加载，直接创建 widget
+        if ((window as any).TradingView) {
+          createWidget(containerId);
+        }
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = 'https://s3.tradingview.com/tv.js';
+      script.async = true;
+      script.onload = () => {
+        if ((window as any).TradingView && containerRef.current) {
+          createWidget(containerId);
+        }
+      };
+      script.onerror = () => {
+        console.error('Failed to load TradingView script');
+      };
+      document.head.appendChild(script);
+      scriptRef.current = script;
+    };
+
+    function createWidget(id: string) {
+      if (!containerRef.current || !(window as any).TradingView) return;
+
+      // 清理旧的 widget
+      if (widgetRef.current) {
+        try {
+          widgetRef.current.remove();
+        } catch (e) {
+          console.warn('Error removing old widget:', e);
+        }
+        widgetRef.current = null;
+      }
+
+      // 确保容器存在且为空
+      if (!containerRef.current) return;
+      containerRef.current.innerHTML = '';
+
+      try {
+        // 创建新的 widget
+        widgetRef.current = new (window as any).TradingView.widget({
+          autosize: true,
+          symbol: tradingViewSymbol,
+          interval: timeframeMap[timeframe],
+          timezone: 'Asia/Taipei',
+          theme: 'light',
+          style: '1',
+          locale: 'zh_TW',
+          toolbar_bg: '#f1f3f6',
+          enable_publishing: false,
+          allow_symbol_change: false,
+          hide_side_toolbar: !showDetails,
+          container_id: id,
+          height: showDetails ? 500 : 100,
+          width: '100%',
+          hide_volume: !showDetails,
+          studies_overrides: {},
+          overrides: {
+            'paneProperties.background': '#ffffff',
+            'paneProperties.backgroundType': 'solid',
+          }
+        });
+      } catch (error) {
+        console.error('Error creating TradingView widget:', error);
+      }
+    }
+
+    loadScript();
+
+    return () => {
+      if (widgetRef.current) {
+        try {
+          widgetRef.current.remove();
+        } catch (e) {
+          console.warn('Error removing widget on cleanup:', e);
+        }
+        widgetRef.current = null;
+      }
+    };
+  }, [tradingViewSymbol, timeframe, showDetails, symbol]);
 
   if (showDetails) {
     return (
@@ -190,65 +152,22 @@ const MarketChart: React.FC<MarketChartProps> = ({
             ))}
           </div>
         )}
-        <div className="h-48 sm:h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={filteredData}>
-              <defs>
-                <linearGradient id="colorPriceDetail" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={color} stopOpacity={0.2}/>
-                  <stop offset="95%" stopColor={color} stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <XAxis 
-                dataKey="time" 
-                hide={filteredData.length > 20}
-                tick={{ fontSize: 10 }}
-              />
-              <YAxis hide domain={['auto', 'auto']} />
-              <Tooltip 
-                contentStyle={{ 
-                  borderRadius: '16px', 
-                  border: 'none', 
-                  boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)',
-                  fontSize: '12px',
-                  fontWeight: 'bold'
-                }}
-                formatter={(value: number) => [`$${value.toFixed(2)}`, '價格']}
-              />
-              <Area 
-                type="monotone" 
-                dataKey="price" 
-                stroke={color} 
-                fillOpacity={1} 
-                fill="url(#colorPriceDetail)" 
-                strokeWidth={3}
-                animationDuration={600}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
+        <div 
+          ref={containerRef} 
+          className="w-full rounded-2xl overflow-hidden border border-slate-200"
+          style={{ minHeight: '500px' }}
+        />
       </div>
     );
   }
 
+  // 小图表（用于列表显示）
   return (
-    <div className="h-10 w-20 sm:w-24">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data}>
-          <YAxis hide domain={['dataMin - 0.5', 'dataMax + 0.5']} />
-          <Area 
-            type="monotone" 
-            dataKey="price" 
-            stroke={color} 
-            fill={color}
-            fillOpacity={0.05}
-            strokeWidth={2} 
-            dot={false} 
-            isAnimationActive={false}
-          />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
+    <div 
+      ref={containerRef} 
+      className="h-10 w-20 sm:w-24 rounded overflow-hidden"
+      style={{ minHeight: '40px' }}
+    />
   );
 };
 

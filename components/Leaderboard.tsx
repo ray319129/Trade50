@@ -79,15 +79,35 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
             profitPercent,
             rank: 1
           }]);
+        } else {
+          setLeaderboard([]);
         }
         setIsLoading(false);
         return;
       }
 
+      // 确保 data 是数组
+      if (!Array.isArray(data)) {
+        console.warn('排行榜数据格式错误:', data);
+        setLeaderboard(userData ? [{
+          username: userData.username,
+          totalAssets: calculateTotalAssets(userData),
+          profit: calculateTotalAssets(userData) - INITIAL_BALANCE,
+          profitPercent: ((calculateTotalAssets(userData) - INITIAL_BALANCE) / INITIAL_BALANCE) * 100,
+          rank: 1
+        }] : []);
+        setIsLoading(false);
+        return;
+      }
+
       // 计算每个用户的总资产和盈亏（基于当前模式）
-      const entries: LeaderboardEntry[] = (data || [])
+      const entries: LeaderboardEntry[] = data
         .map((item: any) => {
           try {
+            if (!item || !item.data) {
+              return null;
+            }
+            
             const userState = item.data as UserState;
             if (!userState || !userState.username) {
               return null;
@@ -98,7 +118,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
             const profitPercent = (profit / INITIAL_BALANCE) * 100;
 
             return {
-              username: userState.username || item.username,
+              username: userState.username || item.username || '未知用户',
               totalAssets,
               profit,
               profitPercent,
@@ -112,20 +132,26 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
         .filter((entry): entry is LeaderboardEntry => entry !== null);
 
       // 排序
-      entries.sort((a, b) => {
-        if (sortBy === 'assets') {
-          return b.totalAssets - a.totalAssets;
-        } else {
-          return b.profit - a.profit;
-        }
-      });
+      if (Array.isArray(entries) && entries.length > 0) {
+        entries.sort((a, b) => {
+          if (sortBy === 'assets') {
+            return b.totalAssets - a.totalAssets;
+          } else {
+            return b.profit - a.profit;
+          }
+        });
 
-      // 分配排名
-      entries.forEach((entry, index) => {
-        entry.rank = index + 1;
-      });
+        // 分配排名
+        entries.forEach((entry, index) => {
+          if (entry) {
+            entry.rank = index + 1;
+          }
+        });
 
-      setLeaderboard(entries);
+        setLeaderboard(entries);
+      } else {
+        setLeaderboard([]);
+      }
     } catch (err) {
       console.error('加载排行榜错误:', err);
     } finally {
@@ -134,21 +160,36 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
   };
 
   const calculateTotalAssets = (user: UserState): number => {
-    // 获取当前模式的用户数据
-    const modeData = getModeData(user, gameMode);
-    
-    let holdingsValue = 0;
-    
-    // 计算持仓价值
-    if (modeData.holdings && Array.isArray(modeData.holdings)) {
-      modeData.holdings.forEach(holding => {
-        const stock = stocks.find(s => s.symbol === holding.symbol);
-        const currentPrice = stock?.price || holding.currentPrice || 0;
-        holdingsValue += currentPrice * holding.shares;
-      });
-    }
+    try {
+      if (!user) {
+        return INITIAL_BALANCE;
+      }
+      
+      // 获取当前模式的用户数据
+      const modeData = getModeData(user, gameMode);
+      
+      if (!modeData) {
+        return INITIAL_BALANCE;
+      }
+      
+      let holdingsValue = 0;
+      
+      // 计算持仓价值
+      if (modeData.holdings && Array.isArray(modeData.holdings)) {
+        modeData.holdings.forEach(holding => {
+          if (holding && holding.symbol && holding.shares) {
+            const stock = stocks && Array.isArray(stocks) ? stocks.find(s => s && s.symbol === holding.symbol) : null;
+            const currentPrice = stock?.price || holding.currentPrice || 0;
+            holdingsValue += currentPrice * holding.shares;
+          }
+        });
+      }
 
-    return (modeData.balance || 0) + holdingsValue;
+      return (modeData.balance || INITIAL_BALANCE) + holdingsValue;
+    } catch (err) {
+      console.error('计算总资产时出错:', err, user);
+      return INITIAL_BALANCE;
+    }
   };
 
   const getRankIcon = (rank: number) => {
@@ -211,7 +252,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {leaderboard.length === 0 ? (
+              {!leaderboard || leaderboard.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="p-12 text-center text-slate-400">
                     <p className="font-bold">尚無排行榜數據</p>

@@ -1,140 +1,168 @@
 
-import React, { useEffect, useRef } from 'react';
+import React, { useMemo } from 'react';
+import { LineChart, Line, AreaChart, Area, ResponsiveContainer, YAxis, Tooltip, XAxis, CartesianGrid } from 'recharts';
 
 export type ChartTimeframe = '1D' | '5D' | '1M' | '6M';
 
 interface MarketChartProps {
-  symbol: string; // 股票代码，例如 '2330'
-  name?: string; // 股票名称
-  color?: string; // 保留用于兼容性，但 TradingView 有自己的颜色
+  symbol: string;
+  name?: string;
+  color?: string;
   showDetails?: boolean;
   timeframe?: ChartTimeframe;
   onTimeframeChange?: (timeframe: ChartTimeframe) => void;
-  // 保留 data 用于兼容性，但 TradingView 会自己获取数据
   data?: { time: string; price: number }[];
 }
-
-// TradingView 时间框架映射
-const timeframeMap: Record<ChartTimeframe, string> = {
-  '1D': '1D',
-  '5D': '5D',
-  '1M': '1M',
-  '6M': '6M'
-};
 
 const MarketChart: React.FC<MarketChartProps> = ({ 
   symbol,
   name,
-  color,
+  color = '#3b82f6',
   showDetails = false, 
   timeframe = '1D',
   onTimeframeChange,
-  data // 保留但不使用
+  data = []
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const scriptRef = useRef<HTMLScriptElement | null>(null);
-  const widgetRef = useRef<any>(null);
+  // 根据时间框架过滤和采样数据
+  const filteredData = useMemo(() => {
+    if (!data || data.length === 0) return [];
 
-  // 将台湾股票代码转换为 TradingView 格式 (TWSE:股票代码)
-  const tradingViewSymbol = `TWSE:${symbol}`;
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    // 为容器创建唯一 ID
-    const containerId = `tradingview_${symbol}_${Date.now()}`;
-    if (containerRef.current) {
-      containerRef.current.id = containerId;
-    }
-
-    // 加载 TradingView 脚本
-    const loadScript = () => {
-      if (scriptRef.current) {
-        // 脚本已加载，直接创建 widget
-        if ((window as any).TradingView) {
-          createWidget(containerId);
-        }
-        return;
+    // 解析时间字符串并转换为时间戳用于排序和过滤
+    const parseTime = (timeStr: string): number => {
+      // 格式可能是 "MM/DD HH:mm" 或 "HH:mm"
+      const parts = timeStr.split(' ');
+      if (parts.length === 2) {
+        const [datePart, timePart] = parts;
+        const [month, day] = datePart.split('/').map(Number);
+        const [hour, minute] = timePart.split(':').map(Number);
+        const now = new Date();
+        const year = now.getFullYear();
+        return new Date(year, month - 1, day, hour, minute).getTime();
       }
-
-      const script = document.createElement('script');
-      script.src = 'https://s3.tradingview.com/tv.js';
-      script.async = true;
-      script.onload = () => {
-        if ((window as any).TradingView && containerRef.current) {
-          createWidget(containerId);
-        }
-      };
-      script.onerror = () => {
-        console.error('Failed to load TradingView script');
-      };
-      document.head.appendChild(script);
-      scriptRef.current = script;
+      // 如果只有时间，假设是今天
+      const [hour, minute] = timeStr.split(':').map(Number);
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute).getTime();
     };
 
-    function createWidget(id: string) {
-      if (!containerRef.current || !(window as any).TradingView) return;
+    const now = Date.now();
+    let cutoffTime = now;
 
-      // 清理旧的 widget
-      if (widgetRef.current) {
-        try {
-          widgetRef.current.remove();
-        } catch (e) {
-          console.warn('Error removing old widget:', e);
-        }
-        widgetRef.current = null;
-      }
+    // 根据时间框架计算截止时间
+    switch (timeframe) {
+      case '1D':
+        cutoffTime = now - 24 * 60 * 60 * 1000; // 1天前
+        break;
+      case '5D':
+        cutoffTime = now - 5 * 24 * 60 * 60 * 1000; // 5天前
+        break;
+      case '1M':
+        cutoffTime = now - 30 * 24 * 60 * 60 * 1000; // 30天前
+        break;
+      case '6M':
+        cutoffTime = now - 180 * 24 * 60 * 60 * 1000; // 180天前
+        break;
+    }
 
-      // 确保容器存在且为空
-      if (!containerRef.current) return;
-      containerRef.current.innerHTML = '';
+    // 过滤数据并转换为图表格式
+    const chartData = data
+      .map(point => ({
+        ...point,
+        timestamp: parseTime(point.time),
+        value: point.price
+      }))
+      .filter(point => point.timestamp >= cutoffTime)
+      .sort((a, b) => a.timestamp - b.timestamp);
 
-      try {
-        // 创建新的 widget
-        widgetRef.current = new (window as any).TradingView.widget({
-          autosize: true,
-          symbol: tradingViewSymbol,
-          interval: timeframeMap[timeframe],
-          timezone: 'Asia/Taipei',
-          theme: 'light',
-          style: '1',
-          locale: 'zh_TW',
-          toolbar_bg: '#f1f3f6',
-          enable_publishing: false,
-          allow_symbol_change: false,
-          hide_side_toolbar: !showDetails,
-          container_id: id,
-          height: showDetails ? 600 : 80,
-          width: '100%',
-          hide_volume: !showDetails,
-          studies_overrides: {},
-          overrides: {
-            'paneProperties.background': '#ffffff',
-            'paneProperties.backgroundType': 'solid',
-            'paneProperties.vertGridProperties.color': '#e5e7eb',
-            'paneProperties.horzGridProperties.color': '#e5e7eb',
-            'paneProperties.vertGridProperties.style': 0,
-            'paneProperties.horzGridProperties.style': 0,
-          }
+    // 根据时间框架采样数据（避免数据点过多）
+    let sampleInterval = 1;
+    let maxPoints = 200;
+
+    switch (timeframe) {
+      case '1D':
+        sampleInterval = 1;
+        maxPoints = 200;
+        break;
+      case '5D':
+        sampleInterval = Math.max(1, Math.floor(chartData.length / 100));
+        maxPoints = 100;
+        break;
+      case '1M':
+        sampleInterval = Math.max(1, Math.floor(chartData.length / 60));
+        maxPoints = 60;
+        break;
+      case '6M':
+        sampleInterval = Math.max(1, Math.floor(chartData.length / 60));
+        maxPoints = 60;
+        break;
+    }
+
+    const sampled = [];
+    for (let i = 0; i < chartData.length; i += sampleInterval) {
+      if (sampled.length >= maxPoints) break;
+      sampled.push(chartData[i]);
+    }
+
+    // 如果数据不足，补充一些历史数据点
+    if (sampled.length < 10 && data.length > 0) {
+      const lastPrice = data[data.length - 1]?.price || 0;
+      const firstPrice = sampled[0]?.value || lastPrice;
+      const priceRange = Math.abs(lastPrice - firstPrice) || lastPrice * 0.1;
+
+      const needed = Math.min(10 - sampled.length, 20);
+      for (let i = needed - 1; i >= 0; i--) {
+        const timeOffset = (needed - i) * (cutoffTime - (cutoffTime - (now - cutoffTime))) / needed;
+        const pointTime = new Date(cutoffTime - timeOffset);
+        const progress = i / needed;
+        const price = firstPrice - priceRange * progress * 0.3;
+
+        sampled.unshift({
+          time: pointTime.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
+          price: Math.max(0.01, price),
+          value: Math.max(0.01, price),
+          timestamp: pointTime.getTime()
         });
-      } catch (error) {
-        console.error('Error creating TradingView widget:', error);
       }
     }
 
-    loadScript();
+    return sampled.length > 0 ? sampled : chartData;
+  }, [data, timeframe]);
 
-    return () => {
-      if (widgetRef.current) {
-        try {
-          widgetRef.current.remove();
-        } catch (e) {
-          console.warn('Error removing widget on cleanup:', e);
-        }
-        widgetRef.current = null;
+  // 格式化时间标签
+  const formatTimeLabel = (timeStr: string) => {
+    const parts = timeStr.split(' ');
+    if (parts.length === 2) {
+      const [date, time] = parts;
+      if (timeframe === '1D') {
+        return time; // 只显示时间
+      } else if (timeframe === '5D') {
+        const [month, day] = date.split('/');
+        const hour = time.split(':')[0];
+        return `${month}/${day} ${hour}`;
+      } else {
+        const [month, day] = date.split('/');
+        return `${month}/${day}`;
       }
-    };
-  }, [tradingViewSymbol, timeframe, showDetails, symbol]);
+    }
+    return timeStr;
+  };
+
+  // 自定义 Tooltip
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-200">
+          <p className="text-sm font-black text-slate-900">
+            ${payload[0].value.toFixed(2)}
+          </p>
+          <p className="text-xs text-slate-500 mt-1">
+            {formatTimeLabel(payload[0].payload.time)}
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   if (showDetails) {
     return (
@@ -156,22 +184,63 @@ const MarketChart: React.FC<MarketChartProps> = ({
             ))}
           </div>
         )}
-        <div 
-          ref={containerRef} 
-          className="w-full rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white"
-          style={{ minHeight: '600px', padding: '8px' }}
-        />
+        <div className="w-full rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white p-4">
+          <ResponsiveContainer width="100%" height={600}>
+            <AreaChart data={filteredData} margin={{ top: 10, right: 10, left: 10, bottom: 10 }}>
+              <defs>
+                <linearGradient id={`gradient-${symbol}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={color} stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor={color} stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.5} />
+              <XAxis 
+                dataKey="time" 
+                tickFormatter={formatTimeLabel}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                stroke="#cbd5e1"
+                interval="preserveStartEnd"
+              />
+              <YAxis 
+                domain={['auto', 'auto']}
+                tick={{ fontSize: 11, fill: '#64748b' }}
+                stroke="#cbd5e1"
+                tickFormatter={(value) => `$${value.toFixed(2)}`}
+              />
+              <Tooltip content={<CustomTooltip />} />
+              <Area 
+                type="monotone" 
+                dataKey="value" 
+                stroke={color} 
+                strokeWidth={3}
+                fill={`url(#gradient-${symbol})`}
+                fillOpacity={1}
+                dot={false}
+                activeDot={{ r: 6, fill: color }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     );
   }
 
   // 小图表（用于列表显示）
   return (
-    <div 
-      ref={containerRef} 
-      className="h-12 w-24 sm:w-28 rounded overflow-hidden"
-      style={{ minHeight: '48px', minWidth: '96px' }}
-    />
+    <div className="h-12 w-24 sm:w-28" style={{ minHeight: '48px', minWidth: '96px' }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={filteredData.slice(-20)} margin={{ top: 2, right: 2, left: 2, bottom: 2 }}>
+          <Line 
+            type="monotone" 
+            dataKey="value" 
+            stroke={color}
+            strokeWidth={2}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 };
 

@@ -515,6 +515,7 @@ const App: React.FC = () => {
                          <MarketChart 
                            symbol={stock.symbol} 
                            name={stock.name}
+                           data={stock.history}
                            color={stock.change >= 0 ? '#ef4444' : '#16a34a'} 
                          />
                        </div>
@@ -604,6 +605,7 @@ const App: React.FC = () => {
                        <MarketChart 
                          symbol={selectedStock.symbol}
                          name={selectedStock.name}
+                         data={selectedStock.history}
                          color={selectedStock.change >= 0 ? '#ef4444' : '#16a34a'} 
                          showDetails 
                          timeframe={chartTimeframe}

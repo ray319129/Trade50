@@ -138,7 +138,24 @@ const App: React.FC = () => {
         
         const historyChanged = JSON.stringify(newHistory) !== JSON.stringify(prev.history);
         if (defaulted || newBalance !== prev.balance || historyChanged) {
-          return { ...prev, history: newHistory, balance: newBalance, isBankrupt: prev.isBankrupt || defaulted };
+          // 创建更新后的用户数据
+          const updatedUser = { 
+            ...prev, 
+            history: newHistory, 
+            balance: newBalance, 
+            isBankrupt: prev.isBankrupt || defaulted 
+          };
+          
+          // 基于更新后的历史记录重新计算持仓（确保一致性）
+          const recalculatedHoldings = recalculateHoldings(newHistory);
+          
+          // 验证并修复数据一致性
+          const validatedUser = validateAndFixUserData({
+            ...updatedUser,
+            holdings: recalculatedHoldings
+          });
+          
+          return validatedUser;
         }
         return prev;
       });
@@ -150,8 +167,9 @@ const App: React.FC = () => {
   // Persistence with cloud sync
   useEffect(() => {
     if (user) {
-      // 更新 lastUpdate 时间戳
-      const updatedUser = { ...user, lastUpdate: Date.now() };
+      // 验证并修复数据一致性（确保余额和持仓基于交易记录计算）
+      const validatedUser = validateAndFixUserData(user);
+      const updatedUser = { ...validatedUser, lastUpdate: Date.now() };
       
       // 保存到本地（立即）
       localStorage.setItem(`tw50_user_${updatedUser.username}`, JSON.stringify(updatedUser));
@@ -187,31 +205,15 @@ const App: React.FC = () => {
           // 按时间戳倒序排序（最新的在前）
           mergedHistory.sort((a, b) => b.timestamp - a.timestamp);
           
-          // 合并持仓：基于历史记录重新计算持仓（更准确）
-          // 但为了简化，我们合并两边的持仓数据
-          const mergedHoldingsMap = new Map<string, any>();
-          
-          // 先添加本地持仓
-          user.holdings.forEach(h => {
-            mergedHoldingsMap.set(h.symbol, h);
-          });
-          
-          // 再添加云端持仓（如果本地没有或云端更新）
-          syncedData.holdings.forEach(cloudHolding => {
-            const localHolding = mergedHoldingsMap.get(cloudHolding.symbol);
-            if (!localHolding || cloudHolding.shares !== localHolding.shares) {
-              mergedHoldingsMap.set(cloudHolding.symbol, cloudHolding);
-            }
-          });
-          
-          const mergedHoldings = Array.from(mergedHoldingsMap.values());
+          // 验证并修复云端数据（确保数据一致性）
+          const validatedSyncedData = validateAndFixUserData(syncedData);
           
           // 基于合并后的交易记录重新计算余额和持仓（确保数据一致性）
           const mergedBalance = recalculateBalance(mergedHistory);
           const recalculatedHoldings = recalculateHoldings(mergedHistory);
           
-          // 使用重新计算的持仓（更准确）
-          const finalHoldings = recalculatedHoldings.length > 0 ? recalculatedHoldings : mergedHoldings;
+          // 使用重新计算的持仓（基于所有交易记录，最准确）
+          const finalHoldings = recalculatedHoldings;
           
           // 检查数据是否有变化
           const historyChanged = mergedHistory.length !== user.history.length || 
@@ -239,13 +241,19 @@ const App: React.FC = () => {
               calculatedBalance: mergedBalance
             });
             
-            setUser({
-              ...syncedData,
+            // 创建合并后的用户数据，使用重新计算的余额和持仓
+            const mergedUser: UserState = {
+              ...validatedSyncedData,
               history: mergedHistory,
               holdings: finalHoldings,
               balance: mergedBalance,
               lastUpdate: Date.now()
-            });
+            };
+            
+            // 再次验证合并后的数据
+            const finalUser = validateAndFixUserData(mergedUser);
+            
+            setUser(finalUser);
           }
         }
       } catch (err) {
@@ -413,24 +421,9 @@ const App: React.FC = () => {
           // 等待状态更新完成后再同步
           const latestUser = JSON.parse(localStorage.getItem(`tw50_user_${user.username}`) || '{}');
           if (latestUser.username) {
-            const updatedUser = { ...latestUser, lastUpdate: Date.now() };
-            await userDataService.saveUserData(updatedUser);
-            console.log('交易後立即同步成功');
-          }
-        } catch (err) {
-          console.error('交易後立即同步失敗:', err);
-        }
-      }, 1000);
-    }
-    
-    // 立即同步到云端（交易后立即同步，确保多设备数据一致）
-    if (isCloudSyncEnabled()) {
-      setTimeout(async () => {
-        try {
-          // 等待状态更新完成后再同步
-          const latestUser = JSON.parse(localStorage.getItem(`tw50_user_${user.username}`) || '{}');
-          if (latestUser.username) {
-            const updatedUser = { ...latestUser, lastUpdate: Date.now() };
+            // 确保使用重新计算的余额和持仓
+            const validatedUser = validateAndFixUserData(latestUser);
+            const updatedUser = { ...validatedUser, lastUpdate: Date.now() };
             await userDataService.saveUserData(updatedUser);
             console.log('交易後立即同步成功');
           }

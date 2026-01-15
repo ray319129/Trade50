@@ -739,6 +739,7 @@ const App: React.FC = () => {
               currentUser={currentUser} 
               userData={user} 
               stocks={stocks}
+              gameMode={gameMode}
             />
           )}
 

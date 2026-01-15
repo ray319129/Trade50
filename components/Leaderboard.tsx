@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { getSupabaseClient } from '../services/supabaseService';
-import { UserState } from '../types';
+import { UserState, GameMode } from '../types';
+import { getModeData } from '../services/userDataHelper';
+import { INITIAL_BALANCE } from '../constants';
 
 interface LeaderboardEntry {
   username: string;
@@ -14,9 +16,10 @@ interface LeaderboardProps {
   currentUser: string | null;
   userData: UserState | null;
   stocks: any[];
+  gameMode: GameMode;
 }
 
-const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks }) => {
+const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks, gameMode }) => {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'assets' | 'profit'>('assets');
@@ -30,7 +33,7 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
     }, 30000);
     
     return () => clearInterval(interval);
-  }, [userData, stocks, sortBy]);
+  }, [userData, stocks, sortBy, gameMode]);
 
   const loadLeaderboard = async () => {
     setIsLoading(true);
@@ -41,8 +44,8 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
         // 降级到本地：只显示当前用户
         if (userData) {
           const totalAssets = calculateTotalAssets(userData);
-          const profit = totalAssets - 1000000; // INITIAL_BALANCE
-          const profitPercent = (profit / 1000000) * 100;
+          const profit = totalAssets - INITIAL_BALANCE;
+          const profitPercent = (profit / INITIAL_BALANCE) * 100;
           
           setLeaderboard([{
             username: userData.username,
@@ -66,8 +69,8 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
         // 降级到本地
         if (userData) {
           const totalAssets = calculateTotalAssets(userData);
-          const profit = totalAssets - 1000000;
-          const profitPercent = (profit / 1000000) * 100;
+          const profit = totalAssets - INITIAL_BALANCE;
+          const profitPercent = (profit / INITIAL_BALANCE) * 100;
           
           setLeaderboard([{
             username: userData.username,
@@ -81,21 +84,32 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
         return;
       }
 
-      // 计算每个用户的总资产和盈亏
-      const entries: LeaderboardEntry[] = (data || []).map((item: any) => {
-        const userState = item.data as UserState;
-        const totalAssets = calculateTotalAssets(userState);
-        const profit = totalAssets - 1000000; // INITIAL_BALANCE
-        const profitPercent = (profit / 1000000) * 100;
+      // 计算每个用户的总资产和盈亏（基于当前模式）
+      const entries: LeaderboardEntry[] = (data || [])
+        .map((item: any) => {
+          try {
+            const userState = item.data as UserState;
+            if (!userState || !userState.username) {
+              return null;
+            }
+            
+            const totalAssets = calculateTotalAssets(userState);
+            const profit = totalAssets - INITIAL_BALANCE;
+            const profitPercent = (profit / INITIAL_BALANCE) * 100;
 
-        return {
-          username: userState.username || item.username,
-          totalAssets,
-          profit,
-          profitPercent,
-          rank: 0 // 稍后排序
-        };
-      });
+            return {
+              username: userState.username || item.username,
+              totalAssets,
+              profit,
+              profitPercent,
+              rank: 0 // 稍后排序
+            };
+          } catch (err) {
+            console.error('处理用户数据时出错:', err, item);
+            return null;
+          }
+        })
+        .filter((entry): entry is LeaderboardEntry => entry !== null);
 
       // 排序
       entries.sort((a, b) => {
@@ -120,16 +134,21 @@ const Leaderboard: React.FC<LeaderboardProps> = ({ currentUser, userData, stocks
   };
 
   const calculateTotalAssets = (user: UserState): number => {
+    // 获取当前模式的用户数据
+    const modeData = getModeData(user, gameMode);
+    
     let holdingsValue = 0;
     
     // 计算持仓价值
-    user.holdings.forEach(holding => {
-      const stock = stocks.find(s => s.symbol === holding.symbol);
-      const currentPrice = stock?.price || holding.currentPrice;
-      holdingsValue += currentPrice * holding.shares;
-    });
+    if (modeData.holdings && Array.isArray(modeData.holdings)) {
+      modeData.holdings.forEach(holding => {
+        const stock = stocks.find(s => s.symbol === holding.symbol);
+        const currentPrice = stock?.price || holding.currentPrice || 0;
+        holdingsValue += currentPrice * holding.shares;
+      });
+    }
 
-    return user.balance + holdingsValue;
+    return (modeData.balance || 0) + holdingsValue;
   };
 
   const getRankIcon = (rank: number) => {

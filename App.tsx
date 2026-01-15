@@ -510,13 +510,15 @@ const App: React.FC = () => {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-end justify-between">
-                       <MarketChart 
-                         symbol={stock.symbol} 
-                         name={stock.name}
-                         color={stock.change >= 0 ? '#ef4444' : '#16a34a'} 
-                       />
-                       <div className="bg-blue-50 px-3 py-1 rounded-full group-hover:bg-blue-600 transition-colors">
+                    <div className="flex items-end justify-between gap-3 mt-2">
+                       <div className="flex-1 min-w-0">
+                         <MarketChart 
+                           symbol={stock.symbol} 
+                           name={stock.name}
+                           color={stock.change >= 0 ? '#ef4444' : '#16a34a'} 
+                         />
+                       </div>
+                       <div className="bg-blue-50 px-3 py-1 rounded-full group-hover:bg-blue-600 transition-colors flex-shrink-0">
                           <span className="text-[10px] text-blue-600 group-hover:text-white font-black uppercase">下單</span>
                        </div>
                     </div>
@@ -590,30 +592,32 @@ const App: React.FC = () => {
 
               <div className="lg:col-span-5 space-y-6">
                  {selectedStock ? (
-                   <div className="bg-white p-6 sm:p-8 rounded-[2.5rem] border border-slate-200 shadow-xl space-y-8 sticky top-8">
+                   <div className="bg-white p-6 sm:p-8 lg:p-10 rounded-[2.5rem] border border-slate-200 shadow-xl space-y-10 sticky top-8">
                      <div className="flex justify-between items-center">
                         <div>
                           <h3 className="text-2xl font-black text-slate-900">{selectedStock.name}</h3>
-                          <p className="text-xs font-bold text-slate-400">{selectedStock.symbol} • 即時行情</p>
+                          <p className="text-xs font-bold text-slate-400 mt-1">{selectedStock.symbol} • 即時行情</p>
                         </div>
                      </div>
 
-                     <MarketChart 
-                       symbol={selectedStock.symbol}
-                       name={selectedStock.name}
-                       color={selectedStock.change >= 0 ? '#ef4444' : '#16a34a'} 
-                       showDetails 
-                       timeframe={chartTimeframe}
-                       onTimeframeChange={setChartTimeframe}
-                     />
+                     <div className="space-y-6">
+                       <MarketChart 
+                         symbol={selectedStock.symbol}
+                         name={selectedStock.name}
+                         color={selectedStock.change >= 0 ? '#ef4444' : '#16a34a'} 
+                         showDetails 
+                         timeframe={chartTimeframe}
+                         onTimeframeChange={setChartTimeframe}
+                       />
+                     </div>
 
-                     <div className="grid grid-cols-2 gap-3">
-                        <div className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100">
-                           <p className="text-[10px] text-slate-400 font-black uppercase mb-1">及時價格</p>
+                     <div className="grid grid-cols-2 gap-4">
+                        <div className="p-5 bg-slate-50 rounded-[1.5rem] border border-slate-100">
+                           <p className="text-[10px] text-slate-400 font-black uppercase mb-2">及時價格</p>
                            <p className="text-xl font-black text-slate-900">${selectedStock.price.toFixed(2)}</p>
                         </div>
-                        <div className="p-4 bg-slate-50 rounded-[1.5rem] border border-slate-100">
-                           <p className="text-[10px] text-slate-400 font-black uppercase mb-1">今日變動</p>
+                        <div className="p-5 bg-slate-50 rounded-[1.5rem] border border-slate-100">
+                           <p className="text-[10px] text-slate-400 font-black uppercase mb-2">今日變動</p>
                            <p className={`text-xl font-black ${selectedStock.change >= 0 ? 'text-red-500' : 'text-green-600'}`}>
                               {selectedStock.changePercent.toFixed(2)}%
                            </p>

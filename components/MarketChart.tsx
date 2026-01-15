@@ -104,13 +104,17 @@ const MarketChart: React.FC<MarketChartProps> = ({
           allow_symbol_change: false,
           hide_side_toolbar: !showDetails,
           container_id: id,
-          height: showDetails ? 500 : 100,
+          height: showDetails ? 600 : 80,
           width: '100%',
           hide_volume: !showDetails,
           studies_overrides: {},
           overrides: {
             'paneProperties.background': '#ffffff',
             'paneProperties.backgroundType': 'solid',
+            'paneProperties.vertGridProperties.color': '#e5e7eb',
+            'paneProperties.horzGridProperties.color': '#e5e7eb',
+            'paneProperties.vertGridProperties.style': 0,
+            'paneProperties.horzGridProperties.style': 0,
           }
         });
       } catch (error) {
@@ -134,16 +138,16 @@ const MarketChart: React.FC<MarketChartProps> = ({
 
   if (showDetails) {
     return (
-      <div className="w-full space-y-4">
+      <div className="w-full space-y-6">
         {onTimeframeChange && (
-          <div className="flex gap-2">
+          <div className="flex gap-3 flex-wrap">
             {(['1D', '5D', '1M', '6M'] as ChartTimeframe[]).map((tf) => (
               <button
                 key={tf}
                 onClick={() => onTimeframeChange(tf)}
-                className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+                className={`px-5 py-2.5 rounded-xl text-sm font-black transition-all ${
                   timeframe === tf
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-slate-900 text-white shadow-md'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
@@ -154,8 +158,8 @@ const MarketChart: React.FC<MarketChartProps> = ({
         )}
         <div 
           ref={containerRef} 
-          className="w-full rounded-2xl overflow-hidden border border-slate-200"
-          style={{ minHeight: '500px' }}
+          className="w-full rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-white"
+          style={{ minHeight: '600px', padding: '8px' }}
         />
       </div>
     );
@@ -165,8 +169,8 @@ const MarketChart: React.FC<MarketChartProps> = ({
   return (
     <div 
       ref={containerRef} 
-      className="h-10 w-20 sm:w-24 rounded overflow-hidden"
-      style={{ minHeight: '40px' }}
+      className="h-12 w-24 sm:w-28 rounded overflow-hidden"
+      style={{ minHeight: '48px', minWidth: '96px' }}
     />
   );
 };
